@@ -1,0 +1,30 @@
+[project]
+name = "le-wm"
+version = "0.1.0"
+description = "LeWM: JEPA world model trained with stable-pretraining and evaluated with stable-worldmodel"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "stable-worldmodel[train,env]>=0.1.1",
+    "stable-pretraining>=0.1.7",
+    # stable-pretraining leaves datasets unbounded; without this floor the resolver
+    # can backtrack to datasets 1.x, which is incompatible with pyarrow>=21.
+    "datasets>=3",
+    "torch>=2.4",
+    "torchvision",
+    "lightning>=2.4",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "einops>=0.8",
+    "numpy",
+    "scikit-learn",
+]
+
+[tool.uv]
+# Flat script layout (train.py, eval.py, jepa.py, ...), not an installable package.
+package = false
+
+[tool.uv.extra-build-dependencies]
+# box2d-py (pulled in via gymnasium[all]) needs swig at build time.
+box2d-py = ["swig"]
