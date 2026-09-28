@@ -41,3 +41,8 @@ loss:
     kwargs:
       knots: 17
       num_proj: 1024
+
+wandb:
+  config:
+    entity: librakevin-workday
+    project: lewm

@@ -48,6 +48,8 @@ Place the extracted `.h5` files under `$STABLEWM_HOME` (defaults to `~/.stable-w
 export STABLEWM_HOME=/path/to/your/storage
 ```
 
+To convert an `.h5` dataset to Lance (used by `config/train/data/pusht.yaml`), see [docs/data_conversion.md](docs/data_conversion.md).
+
 Dataset names are specified without the `.h5` extension. For example, `config/train/data/pusht.yaml` references `pusht_expert_train`, which resolves to `$STABLEWM_HOME/pusht_expert_train.h5`.
 
 ## Training
@@ -68,6 +70,8 @@ python train.py data=pusht
 ```
 
 Checkpoints are saved to `$STABLEWM_HOME` upon completion.
+
+For GPU recommendations, time estimates, and launch steps on a cloud instance, see [docs/cloud_training.md](docs/cloud_training.md).
 
 For baseline scripts, see the stable-worldmodel [scripts](https://github.com/galilai-group/stable-worldmodel/tree/main/scripts/train) folder.
 

@@ -6,7 +6,8 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10,<3.11"
 dependencies = [
-    "stable-worldmodel[train,env]>=0.1.1",
+    # `format` provides h5py + hdf5plugin; without it HDF5 datasets are silently unsupported.
+    "stable-worldmodel[train,env,format]>=0.1.1",
     "stable-pretraining>=0.1.7",
     # stable-pretraining leaves datasets unbounded; without this floor the resolver
     # can backtrack to datasets 1.x, which is incompatible with pyarrow>=21.
