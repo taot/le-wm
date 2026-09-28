@@ -20,6 +20,7 @@ dependencies = [
     "einops>=0.8",
     "numpy",
     "scikit-learn",
+    "marimo",
 ]
 
 [tool.uv]
