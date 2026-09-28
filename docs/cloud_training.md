@@ -57,7 +57,7 @@ The range is wide because data-loading speed (CPU cores, disk) matters as much a
 Push your local changes to a fork (or `rsync` the repo), then:
 
 ```bash
-git clone <your fork> le-wm && cd le-wm
+git clone https://github.com/taot/le-wm.git le-wm && cd le-wm
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync && source .venv/bin/activate
 ```
@@ -73,7 +73,20 @@ export LOCAL_DATASET_DIR=/workspace/swm
 
 Point both paths at the instance's local NVMe disk.
 
-### 3. Smoke test
+### 3. Download the dataset
+
+`train.py` downloads `librakevin/lewm-pusht` on first use, but downloading it yourself first is more reliable. `hf download` runs files in parallel and can resume, while the built-in loader fetches one file at a time. If the built-in download is interrupted, the loader later treats the partial folder as a complete cached dataset, because it only checks that the folder isn't empty.
+
+Download the dataset into the folder the loader checks, `$LOCAL_DATASET_DIR/datasets/<user>--<repo>/`:
+
+```bash
+hf download librakevin/lewm-pusht --repo-type dataset \
+  --local-dir $LOCAL_DATASET_DIR/datasets/librakevin--lewm-pusht
+```
+
+If the download stops partway, run the same command again to resume it. Afterward, `ls $LOCAL_DATASET_DIR/datasets/librakevin--lewm-pusht` should list `pusht_expert_train.lance/`.
+
+### 4. Smoke test
 
 Before starting a long paid run, check that the dataset, auth, and wandb all work:
 
@@ -83,18 +96,22 @@ python train.py data=pusht trainer.max_epochs=1 +trainer.limit_train_batches=50
 
 `limit_train_batches` is not in the config, so it needs the `+` prefix.
 
-### 4. Full run
+### 5. Full run
 
-Run inside `tmux` so training survives an SSH disconnect:
+Start `tmux` session:
+
+```
+tmux new -s train
+```
+
+Start training:
 
 ```bash
-tmux new -s train
-python train.py data=pusht num_workers=16 \
-  wandb.enabled=True wandb.config.entity=<your_entity> wandb.config.project=<your_project>
+python train.py data=pusht num_workers=16 wandb.enabled=True wandb.config.entity=librakevin-workday wandb.config.project=lewm
 ```
 
 **Why the wandb flags are needed:** In the `defaults` list of `lewm.yaml`, `_self_` comes before `launcher: local`. Because Hydra applies defaults in order, `launcher/local.yaml` overrides the `wandb` section in `lewm.yaml` with `enabled: False` and `entity: lewm`. Either pass the wandb settings on the command line as shown, or move `_self_` to the end of the defaults list.
 
-### 5. Save the checkpoints
+### 6. Save the checkpoints
 
 Checkpoints are written to `$STABLEWM_HOME` when training finishes. Copy them off the instance (`rsync`, or `hf upload` to a model repo) **before shutting it down**.

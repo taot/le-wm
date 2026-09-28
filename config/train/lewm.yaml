@@ -10,7 +10,7 @@ subdir: ${hydra:job.id}
 num_workers: 6
 train_split: 0.9
 seed: 3072
-img_size: 224
+img_size: 112
 embed_dim: 192
 history_size: 3
 
