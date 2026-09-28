@@ -11,7 +11,7 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import OmegaConf, open_dict
 
 from module import SIGReg
-from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback
+from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback, ResumeCkptCallback, BucketSyncCallback
 
 
 def lejepa_forward(self, batch, stage, cfg):
@@ -105,8 +105,7 @@ def run(cfg):
     ##       training       ##
     ##########################
 
-    run_id = cfg.get("subdir") or ""
-    run_dir = Path(swm.data.utils.get_cache_dir(sub_folder='checkpoints'), run_id)
+    run_dir = Path(swm.data.utils.get_cache_dir(sub_folder='checkpoints'), cfg.run_name)
 
     logger = None
     if cfg.wandb.enabled:
@@ -117,19 +116,25 @@ def run(cfg):
     with open(run_dir / "config.yaml", "w") as f:
         OmegaConf.save(cfg, f)
 
-    object_dump_callback = SaveCkptCallback(
-        run_name=cfg.output_model_name, cfg=cfg.model, epoch_interval=1,
-    )
+    ckpt_name = f"{cfg.output_model_name}_weights"
+    callbacks = [
+        SaveCkptCallback(run_name=cfg.run_name, cfg=cfg.model, epoch_interval=1),
+        ResumeCkptCallback(run_dir / f"{ckpt_name}.ckpt"),
+    ]
+    if cfg.bucket.enabled:
+        callbacks.append(BucketSyncCallback(
+            run_dir, f"{cfg.bucket.uri}/{cfg.run_name}", every_n_epochs=cfg.bucket.every_n_epochs,
+        ))
 
     trainer = pl.Trainer(
         **cfg.trainer,
-        callbacks=[object_dump_callback],
+        callbacks=callbacks,
         num_sanity_val_steps=1,
         logger=logger,
         enable_checkpointing=True,
     )
 
-    ckpt_path = run_dir / f"{cfg.output_model_name}_weights.ckpt"
+    ckpt_path = run_dir / f"{ckpt_name}.ckpt"
     manager = spt.Manager(
         trainer=trainer,
         module=world_model,

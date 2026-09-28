@@ -1,3 +1,6 @@
+import logging
+import threading
+
 import numpy as np
 import torch
 from stable_pretraining import data as dt
@@ -56,5 +59,64 @@ class SaveCkptCallback(Callback):
             model,
             run_name=self.run_name,
             config=self.cfg,
-            filename=f'weights_epoch_{epoch}.pt',
+            filename=f'weights_epoch_{epoch:03d}.pt',
         )
+
+
+class ResumeCkptCallback(Callback):
+    """Save the full training state (optimizer, scheduler, loop counters) to a fixed path after each epoch.
+
+    stable-pretraining's Manager redirects every ModelCheckpoint into its own cache dir, so this writes
+    the file train.py resumes from directly, keeping the whole run in one folder."""
+
+    def __init__(self, path):
+        super().__init__()
+        self.path = str(path)
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        # called on all ranks; Lightning writes from rank zero only
+        trainer.save_checkpoint(self.path)
+
+
+class BucketSyncCallback(Callback):
+    """Mirror the local run folder to a HF bucket every N epochs (in the background) and when training stops."""
+
+    def __init__(self, local_dir, bucket_uri: str, every_n_epochs: int = 5):
+        super().__init__()
+        self.local_dir = str(local_dir)
+        self.bucket_uri = bucket_uri
+        self.every_n_epochs = every_n_epochs
+        self._thread = None
+
+    def _sync(self):
+        from huggingface_hub import sync_bucket
+        try:
+            # *.tmp: half-written checkpoints from the atomic-save plugin
+            sync_bucket(self.local_dir, self.bucket_uri, exclude=["*.tmp"], quiet=True)
+            logging.info(f"Synced {self.local_dir} to {self.bucket_uri}")
+        except Exception as e:
+            logging.warning(f"Bucket sync to {self.bucket_uri} failed: {e}")
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        # ModelCheckpoint runs last at epoch end, so the previous epoch's files are complete by now
+        epoch = trainer.current_epoch
+        if not trainer.is_global_zero or epoch == 0 or epoch % self.every_n_epochs:
+            return
+        if self._thread is not None and self._thread.is_alive():
+            logging.warning("Previous bucket sync still running, skipping this one")
+            return
+        self._thread = threading.Thread(target=self._sync, daemon=True)
+        self._thread.start()
+
+    def _final_sync(self, trainer):
+        if not trainer.is_global_zero:
+            return
+        if self._thread is not None:
+            self._thread.join()
+        self._sync()
+
+    def on_fit_end(self, trainer, pl_module):
+        self._final_sync(trainer)
+
+    def on_exception(self, trainer, pl_module, exception):
+        self._final_sync(trainer)

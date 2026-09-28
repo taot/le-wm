@@ -5,7 +5,15 @@ defaults:
   - model: lewm
 
 output_model_name: lewm
-subdir: ${hydra:job.id}
+# checkpoints go to <checkpoints dir>/<data.env>/<subdir>; pass subdir=<existing run> to resume it
+subdir: ${now:%Y-%m-%d_%H%M%S}_img${img_size}_s${seed}
+run_name: ${data.env}/${subdir}
+
+# mirror the run folder to hf://buckets/... every N epochs and at the end of training
+bucket:
+  enabled: False
+  uri: hf://buckets/librakevin/lewm-checkpoints
+  every_n_epochs: 5
 
 num_workers: 6
 train_split: 0.9

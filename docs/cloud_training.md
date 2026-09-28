@@ -114,4 +114,29 @@ python train.py data=pusht num_workers=16 wandb.enabled=True wandb.config.entity
 
 ### 6. Save the checkpoints
 
-Checkpoints are written to `$STABLEWM_HOME` when training finishes. Copy them off the instance (`rsync`, or `hf upload` to a model repo) **before shutting it down**.
+Each run writes one folder, `$STABLEWM_HOME/checkpoints/<env>/<subdir>/`:
+
+- `env` comes from the data config (`pusht`, `tworoom`, `reacher`, `cube`).
+- `subdir` defaults to `<date>_<time>_img<img_size>_s<seed>`.
+
+| File | Contents |
+|---|---|
+| `config.yaml` | full training config |
+| `config.json` | model config, needed by `load_pretrained` |
+| `weights_epoch_NNN.pt` | model weights after each epoch |
+| `lewm_weights.ckpt` | full training state, used to resume |
+
+Add `bucket.enabled=True` to mirror the folder to `hf://buckets/librakevin/lewm-checkpoints/<env>/<subdir>/`. The sync runs in the background every `bucket.every_n_epochs` epochs (default 5), and once more when training ends or crashes. It needs the `hf auth login` from step 2.
+
+```bash
+python train.py data=pusht num_workers=16 bucket.enabled=True wandb.enabled=True ...
+```
+
+To resume on a new instance, pull the run folder, then pass the same `subdir`:
+
+```bash
+hf buckets sync hf://buckets/librakevin/lewm-checkpoints/pusht/<subdir> $STABLEWM_HOME/checkpoints/pusht/<subdir>
+python train.py data=pusht subdir=<subdir> bucket.enabled=True ...
+```
+
+To evaluate, point `policy` at a weights file relative to `$STABLEWM_HOME/checkpoints`, for example `python eval.py policy=pusht/<subdir>/weights_epoch_100.pt`.

@@ -1,3 +1,4 @@
+env: pusht # checkpoint folder in the bucket; matches config/eval/pusht.yaml
 dataset:
   num_steps: ${eval:'${num_preds} + ${history_size}'}
   frameskip: 5
