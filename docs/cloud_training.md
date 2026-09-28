@@ -107,7 +107,13 @@ tmux new -s train
 Start training:
 
 ```bash
-python train.py data=pusht num_workers=16 wandb.enabled=True wandb.config.entity=librakevin-workday wandb.config.project=lewm
+python train.py \
+    wandb.enabled=True \
+    wandb.config.entity=librakevin-workday \
+    wandb.config.project=lewm \
+    data=pusht \
+    num_workers=16 \
+    trainer.max_epochs=3
 ```
 
 **Why the wandb flags are needed:** In the `defaults` list of `lewm.yaml`, `_self_` comes before `launcher: local`. Because Hydra applies defaults in order, `launcher/local.yaml` overrides the `wandb` section in `lewm.yaml` with `enabled: False` and `entity: lewm`. Either pass the wandb settings on the command line as shown, or move `_self_` to the end of the defaults list.
