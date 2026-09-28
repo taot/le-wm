@@ -3,6 +3,7 @@ import os
 os.environ["MUJOCO_GL"] = "egl"
 
 import time
+import warnings
 from pathlib import Path
 
 import hydra
@@ -13,6 +14,11 @@ from omegaconf import DictConfig, OmegaConf
 from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
 import stable_worldmodel as swm
+
+# eval only forks via subprocess (fork_exec -> exec), so lancedb state is never used in the child
+warnings.filterwarnings(
+    "ignore", message="lancedb fork support is experimental", category=RuntimeWarning
+)
 
 def img_transform(cfg):
     transform = transforms.Compose(
@@ -26,23 +32,12 @@ def img_transform(cfg):
     return transform
 
 
-def get_episodes_length(dataset, episodes):
-    col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-
-    episode_idx = dataset.get_col_data(col_name)
-    step_idx = dataset.get_col_data("step_idx")
-    lengths = []
-    for ep_id in episodes:
-        lengths.append(np.max(step_idx[episode_idx == ep_id]) + 1)
-    return np.array(lengths)
-
-
 def get_dataset(cfg, dataset_name):
-    dataset_path = Path(cfg.cache_dir or swm.data.utils.get_cache_dir())
-    dataset = swm.data.HDF5Dataset(
+    cache_dir = cfg.get("cache_dir") or os.environ.get("LOCAL_DATASET_DIR", None)
+    dataset = swm.data.load_dataset(
         dataset_name,
-        keys_to_cache=cfg.dataset.keys_to_cache,
-        cache_dir=dataset_path,
+        cache_dir=cache_dir,
+        keys_to_cache=list(cfg.dataset.keys_to_cache),
     )
     return dataset
 
@@ -65,8 +60,6 @@ def run(cfg: DictConfig):
 
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
     stats_dataset = dataset  # get_dataset(cfg, cfg.dataset.stats)
-    col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-    ep_indices, _ = np.unique(stats_dataset.get_col_data(col_name), return_index=True)
 
     process = {}
     for col in cfg.dataset.keys_to_cache:
@@ -105,18 +98,20 @@ def run(cfg: DictConfig):
         else Path(__file__).parent
     )
 
-    # sample the episodes and the starting indices
-    episode_len = get_episodes_length(dataset, ep_indices)
+    # sample the episodes and the starting indices.
+    # Episodes are addressed positionally (as load_chunk expects), derived from
+    # the dataset's episode lengths/offsets rather than index columns, which
+    # LanceDataset does not expose via column_names/get_row_data.
+    episode_len = np.asarray(dataset.lengths)
+    episode_offsets = np.asarray(dataset.offsets)
     max_start_idx = episode_len - cfg.eval.goal_offset_steps - 1
-    max_start_idx_dict = {ep_id: max_start_idx[i] for i, ep_id in enumerate(ep_indices)}
-    # Map each dataset row’s episode_idx to its max_start_idx
-    col_name = "episode_idx" if "episode_idx" in dataset.column_names else "ep_idx"
-    max_start_per_row = np.array(
-        [max_start_idx_dict[ep_id] for ep_id in dataset.get_col_data(col_name)]
-    )
 
-    # remove all the lines of dataset for which dataset['step_idx'] > max_start_per_row
-    valid_mask = dataset.get_col_data("step_idx") <= max_start_per_row
+    # per-row episode position and step within the episode
+    row_episode = np.repeat(np.arange(len(episode_len)), episode_len)
+    row_step = np.arange(episode_len.sum()) - np.repeat(episode_offsets - episode_offsets[0], episode_len)
+
+    # remove all the rows for which step > max_start_idx of its episode
+    valid_mask = row_step <= max_start_idx[row_episode]
     valid_indices = np.nonzero(valid_mask)[0]
     print(valid_mask.sum(), "valid starting points found for evaluation.")
 
@@ -125,13 +120,12 @@ def run(cfg: DictConfig):
         len(valid_indices) - 1, size=cfg.eval.num_eval, replace=False
     )
 
-    # sort increasingly to avoid issues with HDF5Dataset indexing
     random_episode_indices = np.sort(valid_indices[random_episode_indices])
 
     print(random_episode_indices)
 
-    eval_episodes = dataset.get_row_data(random_episode_indices)[col_name]
-    eval_start_idx = dataset.get_row_data(random_episode_indices)["step_idx"]
+    eval_episodes = row_episode[random_episode_indices]
+    eval_start_idx = row_step[random_episode_indices]
 
     if len(eval_episodes) < cfg.eval.num_eval:
         raise ValueError("Not enough episodes with sufficient length for evaluation.")
