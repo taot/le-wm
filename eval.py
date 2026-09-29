@@ -27,6 +27,13 @@ warnings.filterwarnings(
     "ignore", message="lancedb fork support is experimental", category=RuntimeWarning
 )
 
+def block_goal_error(env):
+    """(position, angle) error of a PushT block from the green-T goal_pose."""
+    pos_diff = np.linalg.norm(np.asarray(env.block.position) - env.goal_pose[:2])
+    angle_diff = abs((env.block.angle - env.goal_pose[2] + np.pi) % (2 * np.pi) - np.pi)
+    return pos_diff, angle_diff
+
+
 class BlockOnGoalSuccess(gym.Wrapper):
     """Full-solve success: the block is on the green-T goal_pose.
 
@@ -36,9 +43,7 @@ class BlockOnGoalSuccess(gym.Wrapper):
 
     def step(self, action):
         obs, reward, _, truncated, info = self.env.step(action)
-        env = self.env.unwrapped
-        pos_diff = np.linalg.norm(np.asarray(env.block.position) - env.goal_pose[:2])
-        angle_diff = abs((env.block.angle - env.goal_pose[2] + np.pi) % (2 * np.pi) - np.pi)
+        pos_diff, angle_diff = block_goal_error(self.env.unwrapped)
         terminated = bool(pos_diff < 20 and angle_diff < np.pi / 9)
         return obs, reward, terminated, truncated, info
 
@@ -91,6 +96,44 @@ def get_dataset(cfg, dataset_name):
     )
     return dataset
 
+def fit_process(cfg, dataset):
+    """Fit the per-column StandardScalers the policy uses to normalize inputs."""
+    process = {}
+    for col in cfg.dataset.keys_to_cache:
+        if col in ["pixels"]:
+            continue
+        processor = preprocessing.StandardScaler()
+        col_data = dataset.get_col_data(col)
+        col_data = col_data[~np.isnan(col_data).any(axis=1)]
+        processor.fit(col_data)
+        process[col] = processor
+
+        if col != "action":
+            process[f"goal_{col}"] = process[col]
+    return process
+
+
+def build_policy(cfg, process):
+    """CEM world-model policy for cfg.policy, or a random policy."""
+    if cfg.get("policy", "random") == "random":
+        return swm.policy.RandomPolicy()
+
+    model = swm.wm.utils.load_pretrained(cfg.policy)
+    model = model.to("cuda")
+    model = model.eval()
+    model.requires_grad_(False)
+    model.interpolate_pos_encoding = True
+    config = swm.PlanConfig(**cfg.plan_config)
+    solver = hydra.utils.instantiate(cfg.solver, model=model)
+    transform = {
+        "pixels": img_transform(cfg),
+        "goal": img_transform(cfg),
+    }
+    return swm.policy.WorldModelPolicy(
+        solver=solver, config=config, process=process, transform=transform
+    )
+
+
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig):
     """Run evaluation of dinowm vs random policy."""
@@ -112,45 +155,9 @@ def run(cfg: DictConfig):
         cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
         world = swm.World(**cfg.world, image_shape=(224, 224))
 
-    # create the transform
-    transform = {
-        "pixels": img_transform(cfg),
-        "goal": img_transform(cfg),
-    }
-
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
-    stats_dataset = dataset  # get_dataset(cfg, cfg.dataset.stats)
-
-    process = {}
-    for col in cfg.dataset.keys_to_cache:
-        if col in ["pixels"]:
-            continue
-        processor = preprocessing.StandardScaler()
-        col_data = stats_dataset.get_col_data(col)
-        col_data = col_data[~np.isnan(col_data).any(axis=1)]
-        processor.fit(col_data)
-        process[col] = processor
-
-        if col != "action":
-            process[f"goal_{col}"] = process[col]
-
-    # -- run evaluation
-    policy = cfg.get("policy", "random")
-
-    if policy != "random":
-        model = swm.wm.utils.load_pretrained(cfg.policy)
-        model = model.to("cuda")
-        model = model.eval()
-        model.requires_grad_(False)
-        model.interpolate_pos_encoding = True
-        config = swm.PlanConfig(**cfg.plan_config)
-        solver = hydra.utils.instantiate(cfg.solver, model=model)
-        policy = swm.policy.WorldModelPolicy(
-            solver=solver, config=config, process=process, transform=transform
-        )
-
-    else:
-        policy = swm.policy.RandomPolicy()
+    process = fit_process(cfg, dataset)
+    policy = build_policy(cfg, process)
 
     results_path = (
         Path(swm.data.utils.get_cache_dir(), cfg.policy).parent
