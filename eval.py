@@ -1,6 +1,11 @@
 import os
 
 os.environ["MUJOCO_GL"] = "egl"
+# Cloud containers often report every host CPU (e.g. 252 on RunPod) while the
+# cgroup quota allows far fewer; torch then oversubscribes threads on the tiny
+# per-step ops and each env step takes seconds. Must be set before importing torch.
+os.environ.setdefault("OMP_NUM_THREADS", "8")
+os.environ.setdefault("MKL_NUM_THREADS", "8")
 
 import time
 import warnings
