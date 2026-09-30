@@ -20,16 +20,19 @@ import base64
 import io
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 import uvicorn
 from hydra import compose, initialize_config_dir
+from omegaconf import DictConfig
 from PIL import Image
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.responses import FileResponse
 from starlette.routing import Route, WebSocketRoute
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 import eval as ev  # sets the torch thread cap before torch is used
 import stable_worldmodel as swm
@@ -39,7 +42,7 @@ HZ = 10  # PushT control rate (env.metadata["render_fps"])
 SUCCESS_POS, SUCCESS_ANGLE = 20.0, np.pi / 9
 
 
-def load_configs(overrides):
+def load_configs(overrides: list[str]) -> tuple[DictConfig, DictConfig]:
     with initialize_config_dir(config_dir=str(ROOT / "config/eval"), version_base=None):
         return compose("pusht", overrides), compose("pusht_full", overrides)
 
@@ -47,7 +50,7 @@ def load_configs(overrides):
 class Playground:
     """One PushT env; every open browser tab views and drives the same episode."""
 
-    def __init__(self, cfg_ds, cfg_full):
+    def __init__(self, cfg_ds: DictConfig, cfg_full: DictConfig) -> None:
         self.cfg_ds, self.cfg_full = cfg_ds, cfg_full
         self.offset = cfg_ds.eval.goal_offset_steps
 
@@ -60,7 +63,9 @@ class Playground:
         # wrap the solver to score the plan it picks, on exactly the inputs it saw
         solve = self.policy.solver.solve
 
-        def solve_and_score(info_dict, init_action=None):
+        def solve_and_score(
+            info_dict: dict[str, Any], init_action: torch.Tensor | None = None
+        ) -> dict[str, Any]:
             out = solve(info_dict, init_action=init_action)
             self.imagined = self.imagined_cost(info_dict, out["actions"])
             return out
@@ -86,13 +91,13 @@ class Playground:
         ).envs.envs[0].unwrapped
         self.sim.reset(seed=0)
 
-        self.controller = "human"
-        self.mouse = None  # world-space target while the button is held
+        self.controller: str = "human"  # human | expert | model
+        self.mouse: list[float] | None = None  # world-space target while the button is held
         self.new_episode("dataset")
 
     # -- episodes ---------------------------------------------------------
 
-    def new_episode(self, mode, same=False):
+    def new_episode(self, mode: str, same: bool = False) -> None:
         if not same:
             if mode == "dataset":
                 ep = self.rng.choice(np.nonzero(self.lengths > self.offset)[0])
@@ -126,17 +131,17 @@ class Playground:
         self.world.reset(seed=self.episode["seed"], options=self.episode["options"])
         self.goal_state = np.asarray(self.env.goal_state, dtype=np.float64)
         self.step_idx = 0
-        self.history = []  # per step: latent cost, success flags
+        self.history: list[dict[str, Any]] = []  # per step: latent cost, success flags
         # per model plan: step it started, real cost then, cost the model imagined
         # at the plan's end, and the real cost once the plan has run (None if cut short)
-        self.plans = []
-        self.solved_at = None
-        self.plan = None
+        self.plans: list[dict[str, Any]] = []
+        self.solved_at: int | None = None
+        self.plan: dict[str, Any] | None = None
         self.flush_plan()
         self.goal_emb = self.embed("goal")
         self.record()
 
-    def flush_plan(self):
+    def flush_plan(self) -> None:
         # drop the policy's queued actions so it replans from the current state
         # (EnvPool reuses its info dict, so an "_needs_flush" key would stick)
         self.policy._action_buffer[0].clear()
@@ -148,17 +153,17 @@ class Playground:
     # -- model ------------------------------------------------------------
 
     @torch.no_grad()
-    def embed(self, key):
+    def embed(self, key: str) -> torch.Tensor:
         info = self.policy._prepare_info({key: self.world.infos[key]})
         pixels = info[key].to(next(self.model.parameters()).device)
         return self.model.encode({"pixels": pixels})["emb"][0, -1]
 
-    def latent_cost(self):
+    def latent_cost(self) -> float:
         # what CEM minimizes: squared distance between embedding and goal embedding
         return float(((self.embed("pixels") - self.goal_emb) ** 2).sum())
 
     @torch.inference_mode()
-    def imagined_cost(self, info_dict, actions):
+    def imagined_cost(self, info_dict: dict[str, Any], actions: torch.Tensor) -> float:
         """The planner's own cost for one action sequence: how far from the goal
         the model predicts the scene will be when the sequence ends."""
         solver = self.policy.solver
@@ -174,7 +179,7 @@ class Playground:
         candidate = actions.to(device=solver.device, dtype=solver.dtype).unsqueeze(1)
         return float(self.model.get_cost(infos, candidate)[0, 0])
 
-    def model_action(self):
+    def model_action(self) -> np.ndarray:
         replanning = len(self.policy._action_buffer[0]) == 0
         self.world.infos["terminated"][:] = False  # keep planning after a success
         action = self.policy.get_action(self.world.infos)
@@ -194,7 +199,7 @@ class Playground:
             )
         return action.reshape(-1)
 
-    def preview(self, actions):
+    def preview(self, actions: np.ndarray) -> dict[str, Any]:
         """Run a plan in the scratch simulator: agent path and final block pose."""
         self.sim._set_state(self.env._get_obs())
         path = [list(self.sim.agent.position)]
@@ -205,7 +210,7 @@ class Playground:
 
     # -- stepping ---------------------------------------------------------
 
-    def action_for_step(self):
+    def action_for_step(self) -> np.ndarray | None:
         """Action for this tick, or None to hold still."""
         if self.controller == "human":
             if self.mouse is None:
@@ -219,14 +224,14 @@ class Playground:
             return expert[self.step_idx]
         return self.model_action()
 
-    def step(self, action):
+    def step(self, action: np.ndarray) -> None:
         _, _, _, _, self.world.infos = self.world.envs.step(
             np.asarray(action, dtype=np.float32).reshape(1, 2)
         )
         self.step_idx += 1
         self.record()
 
-    def record(self):
+    def record(self) -> None:
         ds_ok, _ = self.env.eval_state(self.goal_state, self.env._get_obs())
         pos, ang = ev.block_goal_error(self.env)
         full_ok = bool(pos < SUCCESS_POS and ang < SUCCESS_ANGLE)
@@ -243,18 +248,18 @@ class Playground:
 
     # -- geometry / state for the browser --------------------------------
 
-    def block_polys(self, body):
+    def block_polys(self, body: Any) -> list[list[list[float]]]:
         """World-space T polygons for a body posed like the block.
 
         Uses the block's shapes, since the env's goal body has none of its own.
         """
         return [[list(body.local_to_world(v)) for v in s.get_vertices()] for s in self.env.block.shapes]
 
-    def goal_block_polys(self):
+    def goal_block_polys(self) -> list[list[list[float]]]:
         self.sim._set_state(self.goal_state)
         return self.block_polys(self.sim.block)
 
-    def snapshot(self, full=False):
+    def snapshot(self, full: bool = False) -> dict[str, Any]:
         env, obs = self.env, self.env._get_obs()
         g = self.goal_state
         agent_err = float(np.linalg.norm(obs[:2] - g[:2]))
@@ -300,26 +305,26 @@ class Playground:
         return msg
 
 
-def encode_png(arr):
+def encode_png(arr: np.ndarray) -> str:
     buf = io.BytesIO()
     Image.fromarray(np.asarray(arr)).save(buf, format="PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def make_app(pg):
+def make_app(pg: Playground) -> Starlette:
     """One env, one tick loop; every open tab sees (and can drive) the same episode."""
     lock = asyncio.Lock()
-    clients = set()
-    state = {"paused": False, "ticker": None}
+    clients: set[WebSocket] = set()
+    state: dict[str, Any] = {"paused": False, "ticker": None}
 
-    async def broadcast(msg):
+    async def broadcast(msg: dict[str, Any]) -> None:
         for ws in list(clients):
             try:
                 await ws.send_json(msg)
             except Exception:
                 clients.discard(ws)
 
-    async def tick():
+    async def tick() -> None:
         loop = asyncio.get_running_loop()
         while True:
             t0 = loop.time()
@@ -335,10 +340,10 @@ def make_app(pg):
                         await broadcast(pg.snapshot())
             await asyncio.sleep(max(0.0, 1 / HZ - (loop.time() - t0)))
 
-    async def index(request):
+    async def index(request: Request) -> FileResponse:
         return FileResponse(ROOT / "playground.html")
 
-    async def ws_endpoint(ws):
+    async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
         if state["ticker"] is None:
             state["ticker"] = asyncio.create_task(tick())
@@ -373,7 +378,7 @@ def make_app(pg):
     return Starlette(routes=[Route("/", index), WebSocketRoute("/ws", ws_endpoint)])
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
