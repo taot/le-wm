@@ -51,12 +51,17 @@ def _(env, info, mo, obs):
     _rows = ["| 键 | 内容 |", "|---|---|"]
     _rows += [f"| `obs['{k}']` | {_describe(v)} |" for k, v in obs.items()]
     _rows += [f"| `info['{k}']` | {_describe(v)} |" for k, v in info.items()]
+
+    def _one_line(space: object) -> str:
+        # Box reprs of array bounds contain newlines, which break inline code.
+        return " ".join(str(space).split())
+
     mo.md(
         f"""
     ## 1. reset / step 返回什么
 
-    - `env.action_space` = `{env.action_space}`
-    - `env.observation_space` = `{env.observation_space}`
+    - `env.action_space` = `{_one_line(env.action_space)}`
+    - `env.observation_space` = `{_one_line(env.observation_space)}`
 
     `reset(seed=0)` 返回的 `obs` 和 `info`：
 
@@ -117,6 +122,27 @@ def _(mo):
 def _(Any, env, mo, np, swm):
     vspace = env.unwrapped.variation_space
 
+    # What each PushT variation controls (read from the PushT env source).
+    descriptions: dict[str, str] = {
+        "background.color": "背景颜色（RGB）",
+        "goal.angle": "画面上绿色目标轮廓的角度（弧度）。只影响画出来的样子，不影响成功判定",
+        "goal.color": "目标轮廓的颜色",
+        "goal.position": "目标轮廓的中心位置 (x, y)，同样只影响画面",
+        "goal.scale": "目标轮廓的大小",
+        "block.angle": "方块的起始角度（弧度）；也用来抽样目标状态里的角度",
+        "block.color": "方块颜色",
+        "block.scale": "方块大小",
+        "block.shape": "方块形状，是 `env.unwrapped.shapes` 的下标（1–7，默认 2 = `T`）",
+        "block.start_position": "方块的起始位置 (x, y)；也用来抽样目标状态里方块的位置",
+        "agent.angle": "智能体的角度（圆点时看不出区别）",
+        "agent.color": "智能体颜色",
+        "agent.scale": "智能体大小",
+        "agent.shape": "智能体形状，`shapes` 的下标（0–7，默认 0 = 圆点 `o`）",
+        "agent.start_position": "智能体的起始位置 (x, y)；也用来抽样目标状态里智能体的位置",
+        "agent.velocity": "智能体的初始速度 (vx, vy)",
+        "rendering.render_goal": "画面上是否画出目标轮廓（1 画，0 不画）",
+    }
+
     def leaf_rows(space: Any) -> list[str]:
         rows = []
         for path in space.sampling_order:
@@ -125,10 +151,15 @@ def _(Any, env, mo, np, swm):
                 continue
             val = np.round(np.asarray(leaf.value, dtype=float), 3).tolist()
             init = np.round(np.asarray(leaf.init_value, dtype=float), 3).tolist()
-            rows.append(f"| `{path}` | `{type(leaf).__name__}` | {init} | {val} |")
+            desc = descriptions.get(path, "")
+            rows.append(f"| `{path}` | `{type(leaf).__name__}` | {desc} | {init} | {val} |")
         return rows
 
-    mo.md("\n".join(["| 路径 | 类型 | init_value | 当前 value |", "|---|---|---|---|", *leaf_rows(vspace)]))
+    mo.md(
+        "\n".join(
+            ["| 路径 | 类型 | 说明 | init_value | 当前 value |", "|---|---|---|---|---|", *leaf_rows(vspace)]
+        )
+    )
     return (vspace,)
 
 
@@ -291,11 +322,57 @@ def _(gym, mo, plt):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## 4. 对照：`gym.make` vs `swm.World`
+
+    `swm.World` 内部也是用 `gym.make` 建环境，只是每个环境都会套上 `MegaWrapper`
+    （负责渲染、缩放图像，并把所有数据挪进 `info`），再把 N 个环境打包成一批。
+    下面用 `World(num_envs=2, image_shape=(64, 64))` 做一次 `reset(seed=0)`，
+    把它的 `info` 和上面 `gym.make` 得到的 `obs` / `info` 并排放在一起看。
+    """)
+    return
+
+
+@app.cell
+def _(env, info, mo, obs, swm):
+    def _shape(v: object) -> str:
+        shape = getattr(v, "shape", None)
+        return f"`{tuple(shape)}`" if shape is not None else f"`{type(v).__name__}`"
+
+    # What gym.make gives for each key (pixels only via env.render()).
+    _gym_side: dict[str, str] = {k: f"obs: {_shape(v)}" for k, v in obs.items()}
+    _gym_side |= {k: f"info: {_shape(v)}" for k, v in info.items() if k not in _gym_side}
+    _gym_side["pixels"] = f"没有，要调用 `env.render()` → {_shape(env.render())}"
+
+    _world = swm.World("swm/PushT-v1", num_envs=2, image_shape=(64, 64))
+    _world.reset(seed=0)
+    _world_infos = _world.infos
+    _world.close()
+
+    _keys = list(dict.fromkeys([*_world_infos.keys(), *_gym_side.keys()]))
+    _rows = ["| 键 | `gym.make` | `World`（`world.infos`） |", "|---|---|---|"]
+    _rows += [
+        f"| `{k}` | {_gym_side.get(k, '—')} | {_shape(_world_infos[k]) if k in _world_infos else '—'} |"
+        for k in _keys
+    ]
+    mo.md(
+        "\n".join(_rows)
+        + "\n\n- `World` 这一列的数组形状都是 `(num_envs, 1, ...)`，图像已经缩放到 64×64；"
+        "\n- 原来分开放的 `obs` 和 `info` 都合并进了 `world.infos`（`reset` / `step` 返回的 obs 是 `None`），"
+        "另外多了 `reward`、`terminated`、`action`、`step_idx` 等键，方便记录数据；"
+        "\n- 第 i 个环境用的 seed 是 `seed + i`。"
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## 小结
 
     - swm 环境 = gym 环境 + 丰富的 `info` + `variation_space`；
     - `reset(seed, options={"variation": [...], "variation_values": {...}})` 控制环境外观/起点；
-    - 环境还可以有自己的 reset 选项（PushT：`state`、`goal_state`）。
+    - 环境还可以有自己的 reset 选项（PushT：`state`、`goal_state`）；
+    - `swm.World` = 多个 `gym.make` 环境 + `MegaWrapper`（自动渲染和缩放，数据都放进 `info`）+ 批处理。
 
     下一篇：用 `World` 同时跑很多个环境，并接上 policy。
     """)

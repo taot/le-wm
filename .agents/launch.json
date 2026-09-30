@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "slides",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "tutorials/slides", "dev"],
+      "port": 3030
+    }
+  ]
+}

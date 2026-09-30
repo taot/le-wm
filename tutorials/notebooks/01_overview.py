@@ -11,7 +11,7 @@ def _():
     import numpy as np
     import stable_worldmodel as swm
 
-    return mo, np, plt, swm
+    return mo, plt, swm
 
 
 @app.cell(hide_code=True)
@@ -171,8 +171,11 @@ def _(mo):
 @app.cell
 def _(swm):
     world = swm.World("swm/PushT-v1", num_envs=4, image_shape=(96, 96), max_episode_steps=50)
-    world.set_policy(swm.policy.RandomPolicy(seed=0))
-    results = world.evaluate(episodes=4, seed=0)
+    # opts = {"variation_values": {"rendering.render_goal": 0}}
+    opts = {}
+    world.set_policy(swm.policy.RandomPolicy())  # (seed=0))
+    world.reset()
+    results = world.evaluate(episodes=4, options=opts) #, seed=0)
     results
     return (world,)
 
@@ -199,6 +202,21 @@ def _(mo):
     上面一行是每个环境最后一帧，下面一行是它的**目标图像**（`goal`）：PushT 的目标是把
     灰色的 T 推到和目标图像里一样的位置和角度。注意每个环境的起点和目标都不同——这是
     variation space 按 seed 随机抽出来的，下一篇（02）细讲。
+
+    **注意：绿色的 T 不是目标。** 这一点容易看错：
+
+    - 绿色 T 画的是 `goal_pose`，来自 variation space 的 `goal.position` / `goal.angle`，
+      默认是 `(256, 256)` 和 `π/4`。`reset` 默认只重新抽 `agent.start_position`、
+      `block.start_position`、`block.angle` 三项，所以绿色 T 每局都在同一个地方。它是从原版
+      PushT（Diffusion Policy）继承来的，在原版里它才是目标。
+    - 真正的目标是 `goal_state`：`reset` 时另外随机抽一个状态（agent 位置 + T 块位置 +
+      T 块角度），把环境摆成这样拍一张图，就是上面的 `goal` 图像，然后再把环境放回起点。
+    - 成功判定（`env.eval_state`）只比较 `goal_state` 和当前状态：前 4 维（agent 位置 +
+      T 块位置）的距离 < 20，并且 T 块角度差 < π/9。绿色 T 完全不参与。注意 agent（蓝点）
+      的位置也算在里面。
+
+    所以当前帧和目标图像里的绿色 T 一模一样，两张图真正的区别是灰色 T 和蓝点的位置。
+    想去掉绿色 T，可以把 variation `rendering.render_goal` 设成 0。
     """)
     return
 

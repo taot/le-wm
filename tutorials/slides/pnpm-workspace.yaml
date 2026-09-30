@@ -1,0 +1,3 @@
+allowBuilds:
+  # 只有导出 PDF 时才需要下载 Chromium；需要时改成 true 再 pnpm install
+  playwright-chromium: false

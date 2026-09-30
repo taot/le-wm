@@ -19,6 +19,10 @@
 - **checkpoint**：08、09 开头的 `CHECKPOINT` 常量，路径相对 `$STABLEWM_HOME/checkpoints/`；换成你自己的 run 时，`IMG_SIZE` 也要和训练时一致。
 - 08、09 有 CUDA 就用 GPU，否则用 CPU（09 在 CPU 上会自动用小一些的 CEM 设置）。
 
+## Slides
+
+[slides/](slides/) 里有一套讲 world model 的 slides（Slidev）：定义、核心难题、技术路线、评测、可解释性，最后落到本仓库的 LeWM。运行方法见 [slides/README.md](slides/README.md)。
+
 ## 运行
 
 在本机：
