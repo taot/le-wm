@@ -21,6 +21,7 @@ dependencies = [
     "numpy",
     "scikit-learn",
     "marimo",
+    "pydantic_ai",
 ]
 
 [tool.uv]
