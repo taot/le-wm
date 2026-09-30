@@ -10,6 +10,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "8")
 import time
 import warnings
 from pathlib import Path
+from typing import Any
 
 import gymnasium as gym
 import hydra
@@ -27,7 +28,7 @@ warnings.filterwarnings(
     "ignore", message="lancedb fork support is experimental", category=RuntimeWarning
 )
 
-def block_goal_error(env):
+def block_goal_error(env: Any) -> tuple[float, float]:
     """(position, angle) error of a PushT block from the green-T goal_pose."""
     pos_diff = np.linalg.norm(np.asarray(env.block.position) - env.goal_pose[:2])
     angle_diff = abs((env.block.angle - env.goal_pose[2] + np.pi) % (2 * np.pi) - np.pi)
@@ -41,14 +42,18 @@ class BlockOnGoalSuccess(gym.Wrapper):
     block only, ignoring the agent position that PushT's eval_state includes.
     """
 
-    def step(self, action):
+    def step(
+        self, action: np.ndarray
+    ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         obs, reward, _, truncated, info = self.env.step(action)
         pos_diff, angle_diff = block_goal_error(self.env.unwrapped)
         terminated = bool(pos_diff < 20 and angle_diff < np.pi / 9)
         return obs, reward, terminated, truncated, info
 
 
-def evaluate_full_solve(cfg, world, video_path):
+def evaluate_full_solve(
+    cfg: DictConfig, world: swm.World, video_path: Path
+) -> dict[str, Any]:
     """Run num_eval episodes from random starts toward the green-T goal_pose.
 
     The goal image is rendered with the block on goal_pose and the agent at
@@ -75,7 +80,7 @@ def evaluate_full_solve(cfg, world, video_path):
     return metrics
 
 
-def img_transform(cfg):
+def img_transform(cfg: DictConfig) -> transforms.Compose:
     transform = transforms.Compose(
         [
             transforms.ToImage(),
@@ -87,7 +92,7 @@ def img_transform(cfg):
     return transform
 
 
-def get_dataset(cfg, dataset_name):
+def get_dataset(cfg: DictConfig, dataset_name: str) -> Any:
     cache_dir = cfg.get("cache_dir") or os.environ.get("LOCAL_DATASET_DIR", None)
     dataset = swm.data.load_dataset(
         dataset_name,
@@ -96,7 +101,9 @@ def get_dataset(cfg, dataset_name):
     )
     return dataset
 
-def fit_process(cfg, dataset):
+def fit_process(
+    cfg: DictConfig, dataset: Any
+) -> dict[str, preprocessing.StandardScaler]:
     """Fit the per-column StandardScalers the policy uses to normalize inputs."""
     process = {}
     for col in cfg.dataset.keys_to_cache:
@@ -113,7 +120,9 @@ def fit_process(cfg, dataset):
     return process
 
 
-def build_policy(cfg, process):
+def build_policy(
+    cfg: DictConfig, process: dict[str, preprocessing.StandardScaler]
+) -> swm.policy.RandomPolicy | swm.policy.WorldModelPolicy:
     """CEM world-model policy for cfg.policy, or a random policy."""
     if cfg.get("policy", "random") == "random":
         return swm.policy.RandomPolicy()
@@ -135,7 +144,7 @@ def build_policy(cfg, process):
 
 
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
-def run(cfg: DictConfig):
+def run(cfg: DictConfig) -> None:
     """Run evaluation of dinowm vs random policy."""
     assert (
         cfg.plan_config.horizon * cfg.plan_config.action_block <= cfg.eval.eval_budget
@@ -214,7 +223,7 @@ def run(cfg: DictConfig):
             video=results_path,
         )
     end_time = time.time()
-    
+
     print(metrics)
 
     results_path = results_path / cfg.output.filename

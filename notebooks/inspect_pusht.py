@@ -7,6 +7,7 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import io
+    from typing import Sequence
 
     import lance
     import marimo as mo
@@ -15,7 +16,7 @@ def _():
     from matplotlib.patches import Polygon
     from PIL import Image
 
-    return Image, Polygon, io, lance, mo, np, plt
+    return Image, Polygon, Sequence, io, lance, mo, np, plt
 
 
 @app.cell
@@ -90,8 +91,8 @@ def _(cur, ds, np):
 
 
 @app.cell
-def _():
-    def fmt(v):
+def _(Sequence):
+    def fmt(v: Sequence[float]) -> str:
         return f"({v[0]:.2f}, {v[1]:.2f})"
 
     return (fmt,)
@@ -269,7 +270,9 @@ def _(mo, np, state):
 
 @app.cell
 def _(np):
-    def tee_polygons(x, y, angle, scale=30, length=4):
+    def tee_polygons(
+        x: float, y: float, angle: float, scale: float = 30, length: float = 4
+    ) -> list[np.ndarray]:
         """World-space vertices of the two T rectangles (from PushTEnv.add_tee)."""
         _bar = [(-length * scale / 2, scale), (length * scale / 2, scale),
                 (length * scale / 2, 0), (-length * scale / 2, 0)]

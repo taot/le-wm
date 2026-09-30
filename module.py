@@ -2,15 +2,16 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from einops import rearrange
+from typing import Callable
 
-def modulate(x, shift, scale):
+def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     """AdaLN-zero modulation"""
     return x * (1 + scale) + shift
 
 class SIGReg(torch.nn.Module):
     """Sketch Isotropic Gaussian Regularizer (single-GPU!)"""
 
-    def __init__(self, knots=17, num_proj=1024):
+    def __init__(self, knots: int = 17, num_proj: int = 1024) -> None:
         super().__init__()
         self.num_proj = num_proj
         t = torch.linspace(0, 3, knots, dtype=torch.float32)
@@ -22,7 +23,7 @@ class SIGReg(torch.nn.Module):
         self.register_buffer("phi", window)
         self.register_buffer("weights", weights * window)
 
-    def forward(self, proj):
+    def forward(self, proj: torch.Tensor) -> torch.Tensor:
         """
         proj: (T, B, D)
         """
@@ -38,7 +39,7 @@ class SIGReg(torch.nn.Module):
 class FeedForward(nn.Module):
     """FeedForward network used in Transformers"""
 
-    def __init__(self, dim, hidden_dim, dropout=0.0):
+    def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.0) -> None:
         super().__init__()
         self.net = nn.Sequential(
             nn.LayerNorm(dim),
@@ -49,14 +50,16 @@ class FeedForward(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 
 class Attention(nn.Module):
     """Scaled dot-product attention with causal masking"""
 
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0.0):
+    def __init__(
+        self, dim: int, heads: int = 8, dim_head: int = 64, dropout: float = 0.0
+    ) -> None:
         super().__init__()
         inner_dim = dim_head * heads
         project_out = not (heads == 1 and dim_head == dim)
@@ -72,7 +75,7 @@ class Attention(nn.Module):
             else nn.Identity()
         )
 
-    def forward(self, x, causal=True):
+    def forward(self, x: torch.Tensor, causal: bool = True) -> torch.Tensor:
         """
         x : (B, T, D)
         """
@@ -88,7 +91,9 @@ class Attention(nn.Module):
 class ConditionalBlock(nn.Module):
     """Transformer block with AdaLN-zero conditioning"""
 
-    def __init__(self, dim, heads, dim_head, mlp_dim, dropout=0.0):
+    def __init__(
+        self, dim: int, heads: int, dim_head: int, mlp_dim: int, dropout: float = 0.0
+    ) -> None:
         super().__init__()
 
         self.attn = Attention(dim, heads=heads, dim_head=dim_head, dropout=dropout)
@@ -102,7 +107,7 @@ class ConditionalBlock(nn.Module):
         nn.init.constant_(self.adaLN_modulation[-1].weight, 0)
         nn.init.constant_(self.adaLN_modulation[-1].bias, 0)
 
-    def forward(self, x, c):
+    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
             self.adaLN_modulation(c).chunk(6, dim=-1)
         )
@@ -114,7 +119,9 @@ class ConditionalBlock(nn.Module):
 class Block(nn.Module):
     """Standard Transformer block"""
 
-    def __init__(self, dim, heads, dim_head, mlp_dim, dropout=0.0):
+    def __init__(
+        self, dim: int, heads: int, dim_head: int, mlp_dim: int, dropout: float = 0.0
+    ) -> None:
         super().__init__()
 
         self.attn = Attention(dim, heads=heads, dim_head=dim_head, dropout=dropout)
@@ -122,7 +129,7 @@ class Block(nn.Module):
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
@@ -133,16 +140,16 @@ class Transformer(nn.Module):
 
     def __init__(
         self,
-        input_dim,
-        hidden_dim,
-        output_dim,
-        depth,
-        heads,
-        dim_head,
-        mlp_dim,
-        dropout=0.0,
-        block_class=Block,
-    ):
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        depth: int,
+        heads: int,
+        dim_head: int,
+        mlp_dim: int,
+        dropout: float = 0.0,
+        block_class: type[nn.Module] = Block,
+    ) -> None:
         super().__init__()
         self.norm = nn.LayerNorm(hidden_dim)
         self.layers = nn.ModuleList([])
@@ -170,7 +177,7 @@ class Transformer(nn.Module):
                 block_class(hidden_dim, heads, dim_head, mlp_dim, dropout)
             )
 
-    def forward(self, x, c=None):
+    def forward(self, x: torch.Tensor, c: torch.Tensor | None = None) -> torch.Tensor:
 
         if hasattr(self, "input_proj"):
             x = self.input_proj(x)
@@ -189,11 +196,11 @@ class Transformer(nn.Module):
 class Embedder(nn.Module):
     def __init__(
         self,
-        input_dim=10,
-        smoothed_dim=10,
-        emb_dim=10,
-        mlp_scale=4,
-    ):
+        input_dim: int = 10,
+        smoothed_dim: int = 10,
+        emb_dim: int = 10,
+        mlp_scale: int = 4,
+    ) -> None:
         super().__init__()
         self.patch_embed = nn.Conv1d(input_dim, smoothed_dim, kernel_size=1, stride=1)
         self.embed = nn.Sequential(
@@ -202,7 +209,7 @@ class Embedder(nn.Module):
             nn.Linear(mlp_scale * emb_dim, emb_dim),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: (B, T, D)
         """
@@ -219,12 +226,12 @@ class MLP(nn.Module):
 
     def __init__(
         self,
-        input_dim,
-        hidden_dim,
-        output_dim=None,
-        norm_fn=nn.LayerNorm,
-        act_fn=nn.GELU,
-    ):
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int | None = None,
+        norm_fn: Callable[[int], nn.Module] | None = nn.LayerNorm,
+        act_fn: Callable[[], nn.Module] = nn.GELU,
+    ) -> None:
         super().__init__()
         norm_fn = norm_fn(hidden_dim) if norm_fn is not None else nn.Identity()
         self.net = nn.Sequential(
@@ -234,7 +241,7 @@ class MLP(nn.Module):
             nn.Linear(hidden_dim, output_dim or input_dim),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: (B*T, D)
         """
@@ -247,17 +254,17 @@ class ARPredictor(nn.Module):
     def __init__(
         self,
         *,
-        num_frames,
-        depth,
-        heads,
-        mlp_dim,
-        input_dim,
-        hidden_dim,
-        output_dim=None,
-        dim_head=64,
-        dropout=0.0,
-        emb_dropout=0.0,
-    ):
+        num_frames: int,
+        depth: int,
+        heads: int,
+        mlp_dim: int,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int | None = None,
+        dim_head: int = 64,
+        dropout: float = 0.0,
+        emb_dropout: float = 0.0,
+    ) -> None:
         super().__init__()
         self.pos_embedding = nn.Parameter(torch.randn(1, num_frames, input_dim))
         self.dropout = nn.Dropout(emb_dropout)
@@ -273,7 +280,7 @@ class ARPredictor(nn.Module):
             block_class=ConditionalBlock,
         )
 
-    def forward(self, x, c):
+    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         """
         x: (B, T, d)
         c: (B, T, act_dim)

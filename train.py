@@ -1,6 +1,7 @@
 import os
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import hydra
 import lightning as pl
@@ -8,13 +9,15 @@ import stable_pretraining as spt
 import stable_worldmodel as swm
 import torch
 from lightning.pytorch.loggers import WandbLogger
-from omegaconf import OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 from module import SIGReg
 from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback, ResumeCkptCallback, BucketSyncCallback
 
 
-def lejepa_forward(self, batch, stage, cfg):
+def lejepa_forward(
+    self: spt.Module, batch: dict[str, Any], stage: str, cfg: DictConfig
+) -> dict[str, Any]:
     """encode observations, predict next states, compute losses."""
 
     ctx_len = cfg.history_size
@@ -45,7 +48,7 @@ def lejepa_forward(self, batch, stage, cfg):
     return output
 
 @hydra.main(version_base=None, config_path="./config/train", config_name="lewm")
-def run(cfg):
+def run(cfg: DictConfig) -> None:
     #########################
     ##       dataset       ##
     #########################
