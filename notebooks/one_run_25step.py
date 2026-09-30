@@ -18,6 +18,7 @@ def _():
     sys.path.insert(0, str(ROOT))
 
     import eval as ev  # noqa: E402  (sets env vars before torch loads)
+    import gymnasium as gym
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
@@ -32,6 +33,7 @@ def _():
         ROOT,
         compose,
         ev,
+        gym,
         initialize_config_dir,
         mo,
         np,
@@ -74,7 +76,22 @@ def _(ROOT, compose, initialize_config_dir):
         cfg = compose("pusht", [f"policy={CHECKPOINT}", f"eval.img_size={IMG_SIZE}"])
     OFFSET = cfg.eval.goal_offset_steps  # 25
     BUDGET = cfg.eval.eval_budget  # 50
-    return BUDGET, OFFSET, cfg
+    return BUDGET, CHECKPOINT, IMG_SIZE, OFFSET, cfg
+
+
+@app.cell
+def _(CHECKPOINT, IMG_SIZE, ROOT, compose, initialize_config_dir):
+    with initialize_config_dir(config_dir=str(ROOT / "config/eval"), version_base=None):
+        cfg2 = compose("pusht", [f"policy={CHECKPOINT}", f"eval.img_size={IMG_SIZE}"])
+    return (cfg2,)
+
+
+@app.cell
+def _(cfg2):
+    print(f"{cfg2.keys()=}")
+    print(f"{cfg2.cache_dir=}")
+    print(f"{cfg2.policy=}")
+    return
 
 
 @app.cell
@@ -85,6 +102,12 @@ def _(cfg, ev):
     process = ev.fit_process(cfg, dataset)
     policy = ev.build_policy(cfg, process)
     return dataset, policy
+
+
+@app.cell
+def _(policy):
+    type(policy)
+    return
 
 
 @app.cell
@@ -136,6 +159,28 @@ def _(OFFSET, ep_idx, expert_pixels, mo, plt, start_step):
 
 
 @app.cell
+def _(Any, gym, np):
+    # The success rule. World counts an episode as solved (and stops it) the first
+    # step `terminated` is True, so this wrapper decides success by replacing the
+    # env's own `terminated`. For now it is a copy of PushT's eval_state:
+    # agent + block position error < 20 (one 4-d distance) and block angle < 20 deg.
+    # goal_state is what the _set_goal_state callable stored on the env.
+    class GoalStateSuccess(gym.Wrapper):
+        def step(self, action: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+            obs, reward, _, truncated, info = self.env.step(action)
+            env = self.env.unwrapped
+            goal = np.asarray(env.goal_state, dtype=np.float64)
+            cur = np.array([*env.agent.position, *env.block.position, env.block.angle], dtype=np.float64)
+            pos_diff = np.linalg.norm(cur[:4] - goal[:4])
+            angle_diff = np.abs(cur[4] - goal[4]) % (2 * np.pi)
+            angle_diff = min(angle_diff, 2 * np.pi - angle_diff)
+            terminated = bool(pos_diff < 15 and angle_diff < np.pi / 9)
+            return obs, reward, terminated, truncated, info
+
+    return (GoalStateSuccess,)
+
+
+@app.cell
 def _(mo):
     run_btn = mo.ui.run_button(label="Run this episode")
     run_btn
@@ -160,6 +205,7 @@ def _(expert_states, run_states):
 def _(
     Any,
     BUDGET,
+    GoalStateSuccess,
     OFFSET,
     OmegaConf,
     Path,
@@ -182,7 +228,13 @@ def _(
     def env_state(env: Any) -> np.ndarray:
         return np.array([*env.agent.position, *env.block.position, env.block.angle], dtype=np.float64)
 
-    world = swm.World(cfg.world.env_name, num_envs=1, image_shape=(224, 224), max_episode_steps=2 * BUDGET)
+    world = swm.World(
+        cfg.world.env_name,
+        num_envs=1,
+        image_shape=(224, 224),
+        max_episode_steps=2 * BUDGET,
+        extra_wrappers=[GoalStateSuccess],
+    )
     world.set_policy(policy)
     _env = world.envs.envs[0].unwrapped
     log: dict[str, list] = {"state": [], "pixels": [], "success": []}
