@@ -1276,7 +1276,7 @@ loss:
 
 ```mermaid {scale: 0.62}
 flowchart LR
-  P["像素 o_t"] --> E["Encoder<br/>ViT-tiny → CLS"] --> PR["Projector"] --> Z["z_t (192)"]
+  P["像素 o_t"] --> E["Encoder<br/>ViT-tiny → CLS*"] --> PR["Projector"] --> Z["z_t (192)"]
   A["动作 a_t"] --> AE["Embedder"]
   Z --> AR["ARPredictor<br/>AdaLN 以动作为条件"]
   AE --> AR
@@ -1299,6 +1299,12 @@ flowchart LR
 `rollout()`：自回归地把预测接回去，得到整条想象轨迹
 
 </div>
+</div>
+
+<div class="mt-4 text-xs opacity-70 border-t pt-2">
+
+\* **CLS token**：ViT 把 112×112 的图切成 8×8 = 64 个 14×14 的 patch，再在最前面加 1 个可学习的"汇总"token（CLS）。经过 Transformer 后，CLS 汇总了所有 patch 的信息，它的输出（`last_hidden_state[:, 0]`）就作为整帧的表示。名字来自 BERT 的 classification；LeWM 里不做分类，只是借它当"整张图的摘要"——一帧只用一个 192 维向量，预测和规划都很快。
+
 </div>
 
 ---
