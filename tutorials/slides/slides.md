@@ -6,6 +6,7 @@ info: |
   以及本仓库的 LeWorldModel。
 class: text-center text-white
 background: '#0f172a'
+selectable: true
 drawings:
   persist: false
 transition: slide-left
@@ -87,6 +88,7 @@ Sora 类视频生成器、Marble 类 3D 生成器、Cosmos 类平台**都不算�
 
 ---
 layout: section
+title: Part 1 · 定义与分类
 ---
 
 # Part 1
@@ -207,7 +209,105 @@ class: text-xs
 </div>
 
 ---
+class: text-xs
+---
+
+# 如何验证模型学到了动作条件动力学
+
+<div class="text-sm -mt-2 mb-3">
+
+动作条件动力学 = $p(s_{t+1}\mid s_t, a_t)$："我做了这个动作，世界会怎么变"。在 3D 场景里移动相机只是换视角，世界本身没变；推杯子、开门才是改变世界。
+
+</div>
+
+<div class="grid grid-cols-3 gap-3">
+<div class="p-3 rounded bg-sky-500/10">
+
+**① 对动作敏感吗**
+把动作换成随机的或去掉：预测几乎不变 → 模型没用动作，只在"猜剧情"。"什么都不做"时，静止的东西应保持静止
+
+</div>
+<div class="p-3 rounded bg-sky-500/10">
+
+**② 反事实对比**
+同一起点，"左推" vs "右推"：方向相反、幅度合理；有模拟器时和真实物理逐步对比误差
+
+</div>
+<div class="p-3 rounded bg-sky-500/10">
+
+**③ 内部一致性**
+可逆（左 5 再右 5 回原处）· 可组合（两个小动作 = 一个大动作）· 守恒（东西不凭空消失）
+
+</div>
+<div class="p-3 rounded bg-emerald-500/10">
+
+**④ 动作可反推**
+用真实数据训练的逆动力学模型去看预测的前后两帧，反推出的动作应与输入一致
+
+</div>
+<div class="p-3 rounded bg-emerald-500/10">
+
+**⑤ 拿来做决策**
+用模型规划、在真实环境执行，看任务能否完成（本仓库 notebook 09 的 PushT 评估）；更严格：模型里的策略排序应与真实一致（WorldGym）
+
+</div>
+<div class="p-3 rounded bg-emerald-500/10">
+
+**⑥ 分布外测试**
+没见过的动作幅度、物体组合、更长时间跨度（Kang et al.）。分布内准只说明记住或插值
+
+</div>
+</div>
+
+<div class="mt-3 p-3 rounded bg-amber-500/15">
+
+**⑦ 往模型内部看**：探测（能否读出位置、速度、接触）只说明信息**存在**；直接改内部表征、看预测是否跟着变（干预），才说明模型在**使用**它。
+
+</div>
+
+<!--
+这一页和下一页不是来自原综述，是讨论中补充的整理。
+-->
+
+---
+class: text-xs
+---
+
+# 人和机器学到的动力学可以不一样吗？
+
+<div class="grid grid-cols-2 gap-5 mt-2">
+<div class="p-4 rounded bg-emerald-500/10">
+
+**✅ 不同但等价：没问题**
+
+- **Othello-GPT**：人用"黑/白"记棋盘，模型用"我方/对方"——可以一一换算，同样有效
+- **可辨识性理论**（Klindt et al.）：LeJEPA 学到的是"线性变换意义下"的真实潜变量——内部坐标可能是位置和速度的混合，能换算回去就对
+- **只学有用的部分**：MuZero 不预测画面，只预测与奖励 / 价值相关的东西（"价值等价"）
+- 人类直觉物理本身也不精确（McCloskey 1980），但日常够用——**人类不是标准答案**
+
+</div>
+<div class="p-4 rounded bg-rose-500/10">
+
+**❌ 只在训练数据上碰巧一致：有问题**
+
+- **Vafa et al. 2025**：行星轨道预测很准，隐含的"力学定律"却不是牛顿引力，换个任务就出错
+- **Kang et al.**：case-based 泛化——找最像的训练样本来模仿，分布内完美、分布外失败
+- 这不是"另一种正确的物理"，而是一个只在见过的数据上和真实物理**重合**的函数
+
+</div>
+</div>
+
+<div class="mt-4 p-4 rounded bg-amber-500/15">
+
+**标准不是"和人一样"，而是"在关心的干预范围内预测都正确"**（Vafa 的 Myhill-Nerode 思路：对所有后续给出同样预测的两个模型就是等价的）。
+
+怎么区分：① **扩大干预范围**——等价的模型换到新动作、新任务仍然正确；② **找换算关系**（causal abstraction）——找不到不一定错，可能是人没想到的变量，仍需回到 ①；③ **说清有效范围**——"PushT 上够用" ≠ "学会了二维刚体物理"。
+
+</div>
+
+---
 layout: section
+title: Part 1.5 · 其他综述怎么看 world model
 ---
 
 # Part 1.5
@@ -540,6 +640,7 @@ class: text-sm
 
 ---
 layout: section
+title: Part 2 · 核心难题
 ---
 
 # Part 2
@@ -609,6 +710,53 @@ Hallucination in World Models is Predictable and Preventable
 <div class="mt-3 text-xs opacity-70 border-t pt-2">
 其他综述也这么说：Li VI-C——自回归紧凑但误差累积，全局预测一致但重；Zidan §8 把"长时一致性与误差累积"列为第一大挑战。
 </div>
+
+---
+class: text-xs
+---
+
+# 补充：开环一致性有多重要？人类做得如何？
+
+<div class="text-xs opacity-70 -mt-2 mb-3">
+开环 rollout：把模型自己的预测当作下一步输入一直往下推，中途不用真实观测纠正
+</div>
+
+<div class="grid grid-cols-2 gap-5">
+<div>
+
+**重要性取决于用途**
+
+| 用途 | 要开环推多远 |
+|---|---|
+| 短期规划（MPC，如 LeWM） | 几步，然后重规划 |
+| 在想象里训练策略（Dreamer） | 几十步 |
+| 当模拟器（Genie、Waymo WM） | 几分钟甚至更久 |
+
+短期规划时没那么关键；当模拟器时是核心指标——没有真实世界可以对照，策略还会钻模型的漏洞。
+
+</div>
+<div>
+
+**人类：细节层面很差，抽象层面很好**
+
+- 无视觉参照时走不了直线，常绕圈（Souman et al. 2009）
+- 变化盲视：换了说话的人都可能没发现（Simons & Levin 1998）
+- 直觉物理带噪声、只擅长短时定性判断（Battaglia et al. 2013）；还有系统性错误（McCloskey 1980）
+- 运动控制的前向模型只预测约一两百毫秒，随即被感觉反馈纠正（Wolpert et al. 1995）
+- 但"杯子还在桌上、门在身后"这类**抽象状态**能长时间保持
+
+</div>
+</div>
+
+<div class="mt-3 p-3 rounded bg-amber-500/15">
+
+**启示**：人类靠"抽象状态长时一致 + 细节随时观测 + 短期预测频繁纠正"。这支持<b>表征空间预测、按需渲染</b>和分层规划；而"像素级长时高保真模拟器"是一个连人类都不具备的目标。
+
+</div>
+
+<!--
+这一页不是来自原综述，是讨论中补充的。人类实验的引用凭记忆给出，正式使用前请核对原文。
+-->
 
 ---
 class: text-sm
@@ -686,7 +834,7 @@ class: text-sm
 <div class="grid grid-cols-2 gap-6">
 <div>
 
-VLA 框架常把世界模型和逆动力学拼在一起，用"预测未来"来正则化策略学习。
+VLA 框架常把世界模型和逆动力学<sup>*</sup>拼在一起，用"预测未来"来正则化策略学习。
 
 问题：预测的未来往往更多由**历史上下文**和**任务意图**决定，而不是由**即将执行的这个动作**决定。
 
@@ -704,6 +852,12 @@ VLA 框架常把世界模型和逆动力学拼在一起，用"预测未来"来�
 LeWM 的预测器显式以动作 embedding 为条件（AdaLN 调制），可以直接检验这一点。
 
 </div>
+</div>
+
+<div class="mt-4 text-xs opacity-70 border-t pt-2">
+
+\* **逆动力学**（inverse dynamics）：已知当前状态 $s_t$ 和下一状态 $s_{t+1}$，反推中间的动作 $a_t$；与世界模型的正向动力学（$s_t, a_t \to s_{t+1}$）相反。VLA 里常见"先预测、再行动"：世界模型先生成未来画面，逆动力学模型再从"当前 → 未来"推出要执行的动作。
+
 </div>
 
 ---
@@ -823,6 +977,7 @@ LeWM：15M 参数，规划不到 1 秒
 
 ---
 layout: section
+title: Part 3 · 技术路线
 ---
 
 # Part 3
@@ -874,6 +1029,11 @@ TD-MPC2 · MuZero
 <div class="col-span-2 p-3 rounded bg-gradient-to-r from-sky-500/20 to-emerald-500/20 text-center">
 
 ⬇ **混合路线** ⬇<br/>REPA · RAE · Dreamer-CDP · JEPA-WAM · JEPA Guided Diffusion
+
+</div>
+<div class="col-start-4 col-span-2 p-3 rounded border-2 border-dashed border-slate-400/60 text-center">
+
+**对照：端到端策略（不自称世界模型）**<br/>Generalist **GEN-1** · Physical Intelligence π0.7
 
 </div>
 </div>
@@ -1038,6 +1198,7 @@ class: text-sm
 
 ---
 layout: section
+title: Part 4 · 联系本仓库：LeWorldModel
 ---
 
 # Part 4
@@ -1210,6 +1371,7 @@ class: text-xs
 
 ---
 layout: section
+title: Part 5 · 评测
 ---
 
 # Part 5
@@ -1293,6 +1455,7 @@ class: text-sm
 
 ---
 layout: section
+title: Part 6 · 2026 时间线
 ---
 
 # Part 6
@@ -1364,6 +1527,7 @@ class: text-sm
 
 ---
 layout: section
+title: Part 7 · 可解释性与安全
 ---
 
 # Part 7
