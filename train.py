@@ -15,6 +15,7 @@ import torch
 from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig, OmegaConf, open_dict
 
+from jepa import JEPA
 from module import SIGReg
 from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback, ResumeCkptCallback
 
@@ -31,7 +32,13 @@ def lejepa_forward(
     # Replace NaN values with 0 (occurs at sequence boundaries)
     batch["action"] = torch.nan_to_num(batch["action"], 0.0)
 
-    output = self.model.encode(batch)
+    # model / sigreg are set on spt.Module via kwargs; narrow their types for the checker
+    model = self.model
+    sigreg = self.sigreg
+    assert isinstance(model, JEPA)
+    assert isinstance(sigreg, SIGReg)
+
+    output = model.encode(batch)
 
     emb = output["emb"]  # (B, T, D)
     act_emb = output["act_emb"]
@@ -40,11 +47,11 @@ def lejepa_forward(
     ctx_act = act_emb[:, : ctx_len]
 
     tgt_emb = emb[:, n_preds:] # label
-    pred_emb = self.model.predict(ctx_emb, ctx_act) # pred
+    pred_emb = model.predict(ctx_emb, ctx_act) # pred
 
     # LeWM loss
     output["pred_loss"] = (pred_emb - tgt_emb).pow(2).mean()
-    output["sigreg_loss"]= self.sigreg(emb.transpose(0, 1))
+    output["sigreg_loss"]= sigreg(emb.transpose(0, 1))
     output["loss"] = output["pred_loss"] + lambd * output["sigreg_loss"]  
 
     losses_dict = {f"{stage}/{k}": v.detach() for k, v in output.items() if "loss" in k}
