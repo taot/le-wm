@@ -1,6 +1,6 @@
 # Understanding the PushT dataset
 
-This guide explains the contents of `pusht_expert_train.lance` (HF: `librakevin/lewm-pusht`). To browse it in a web UI, see [viewing_lance_datasets.md](viewing_lance_datasets.md).
+This guide explains the contents of `pusht_expert_train.lance` (HF: `librakevin/lewm-pusht`). To download or browse it in a web UI, see [datasets.md](datasets.md).
 
 The dataset is a flat table: **each row is one timestep of one PushT demonstration**.
 
@@ -77,8 +77,6 @@ Across the dataset:
 - The action space is [−1, 1] per axis (at most 100 px of offset); 99.88% of rows fall inside it, with a few outliers up to about ±2.
 - Actions are small: mean ≈ 0, std ≈ 0.21 per axis. The action vector's length is 0.20 at the median, 0.47 at the 90th percentile and 0.76 at the 99th, so a typical offset is about 20 px.
 - The agent moves almost exactly in the commanded direction (median cosine 0.999) and covers a median of about 40% of the offset in one step.
-
-[notebooks/inspect_pusht.py](../notebooks/inspect_pusht.py) draws a row's action over its frame.
 
 ## Reading it in the viewer
 
