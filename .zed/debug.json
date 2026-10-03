@@ -1,0 +1,21 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "label": "eval pusht",
+    "adapter": "Debugpy",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/eval.py",
+    "args": [
+      "--config-name=pusht.yaml",
+      "policy=pusht/2026-09-28_114752_img112_s3072/weights_epoch_003.pt",
+      "eval.img_size=112"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "envFile": "$ZED_WORKTREE_ROOT/.env",
+    "python": "$ZED_WORKTREE_ROOT/.venv/bin/python",
+    "justMyCode": false
+  }
+]
