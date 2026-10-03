@@ -37,6 +37,12 @@ The other data configs (`tworoom.yaml`, `dmc.yaml`, `ogb.yaml`) still point to `
 
 Training downloads `librakevin/lewm-pusht` automatically on first use, but downloading it yourself is more reliable. `hf download` fetches files in parallel and can resume. The built-in loader fetches one file at a time, and if it is interrupted, it later treats the partial folder as a complete dataset (it only checks that the folder isn't empty).
 
+From the repo folder, load `STABLEWM_HOME` from `.env` (see [Where datasets live](#where-datasets-live)), then download:
+
+```bash
+source .env
+```
+
 ```bash
 hf download librakevin/lewm-pusht --repo-type dataset \
   --local-dir $STABLEWM_HOME/datasets/librakevin--lewm-pusht
@@ -53,9 +59,10 @@ If it stops partway, run the same command again. Afterward, the folder should co
 | `quentinll/lewm-reacher` | `reacher.tar.zst` | `tar --zstd -xvf reacher.tar.zst` |
 | `quentinll/lewm-cube` | `cube_single_expert.tar.zst` | `tar --zstd -xvf cube_single_expert.tar.zst` |
 
-PushT is a single compressed `.h5` file, not a tar archive. Example:
+PushT is a single compressed `.h5` file, not a tar archive. Example, from the repo folder:
 
 ```bash
+source .env
 hf download quentinll/lewm-pusht pusht_expert_train.h5.zst --repo-type dataset --local-dir $STABLEWM_HOME/datasets
 zstd -d --rm $STABLEWM_HOME/datasets/pusht_expert_train.h5.zst
 ```
@@ -74,8 +81,11 @@ The output should include both `hdf5` and `lance`.
 
 ### Run the conversion
 
+From the repo folder, so `swm convert` gets `STABLEWM_HOME` from `.env`:
+
 ```bash
-STABLEWM_HOME=/data/swm swm convert pusht_expert_train pusht_expert_train.lance -f lance
+source .env
+swm convert pusht_expert_train pusht_expert_train.lance -f lance
 ```
 
 - The first argument is the dataset name **without** `.h5`, looked up in `$STABLEWM_HOME/datasets/`.
@@ -114,7 +124,8 @@ python -c "from stable_worldmodel.data import convert; convert('/path/to/foo.h5'
 ### Check the result
 
 ```bash
-STABLEWM_HOME=/data/swm python -c "
+source .env
+python -c "
 import stable_worldmodel as swm
 for name in ['pusht_expert_train.h5', 'pusht_expert_train.lance']:
     d = swm.data.load_dataset(name)
@@ -126,9 +137,10 @@ The episode and step counts should be the same for both. To train on it, set `na
 
 ## Browse a Lance dataset
 
-[Lance Data Viewer](https://github.com/lance-format/lance-data-viewer) is a read-only web UI for a dataset's schema and rows. Mount the folder that **contains** the `.lance` dataset(s) at `/data`:
+[Lance Data Viewer](https://github.com/lance-format/lance-data-viewer) is a read-only web UI for a dataset's schema and rows. Mount the folder that **contains** the `.lance` dataset(s) at `/data`. From the repo folder:
 
 ```bash
+source .env
 docker run --rm -p 8080:8080 \
     -v $STABLEWM_HOME/datasets/librakevin--lewm-pusht:/data:ro \
     ghcr.io/lance-format/lance-data-viewer:lancedb-0.36.0
