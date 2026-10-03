@@ -1,0 +1,5 @@
+server:
+  db:
+    name: sqlite
+  name: apache
+debug: false

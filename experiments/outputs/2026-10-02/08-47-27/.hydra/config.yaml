@@ -1,0 +1,5 @@
+server:
+  db:
+    name: mysql
+  name: apache
+debug: false

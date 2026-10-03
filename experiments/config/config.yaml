@@ -1,0 +1,6 @@
+defaults:
+  - server/apache
+  # - server: apache
+  - override server/db: sqlite
+
+debug: false
