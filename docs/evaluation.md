@@ -23,7 +23,6 @@ $STABLEWM_HOME/
         ├── weights_epoch_NNN.pt   # weights after each epoch
         └── eval/
             ├── pusht_results.txt        # metrics of every eval of this run (all epochs)
-            ├── pusht_full_results.txt   # same, for full-solve evals
             └── weights_epoch_NNN/       # videos of the eval of that epoch
 ```
 
@@ -84,14 +83,6 @@ python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_003.
 
 Each episode starts from a state in the dataset, and the goal is the expert's state 25 steps later. The planner has 50 steps to reach it.
 
-**Full solve** (8 episodes):
-
-```bash
-python eval.py --config-name=pusht_full.yaml policy=pusht/<subdir>/weights_epoch_100.pt eval.img_size=112
-```
-
-Each episode starts from a random state, and the goal is the block on the green T. The planner has 300 steps. This task is much harder.
-
 **Random baseline**, to compare against. Its results go to `$STABLEWM_HOME/eval/random/`:
 
 ```bash
@@ -129,8 +120,8 @@ tail -f eval.log
 
 Everything is in the run's `eval/` folder (see [How paths work](#how-paths-work)):
 
-- `pusht_results.txt` / `pusht_full_results.txt`: each eval appends its config and metrics, so all epochs you evaluated are in one file.
-- `weights_epoch_NNN/`: one `.mp4` per episode. Full-solve videos and the goal image `goal.png` are in `weights_epoch_NNN/full_solve/`.
+- `pusht_results.txt`: each eval appends its config and metrics, so all epochs you evaluated are in one file.
+- `weights_epoch_NNN/`: one `.mp4` per episode.
 
 Each eval appends a block that ends like this:
 

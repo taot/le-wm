@@ -135,7 +135,6 @@ python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_100.
 ```
 
 - `--config-name=pusht.yaml`: start from a dataset state; the goal is the expert's state 25 steps later.
-- `--config-name=pusht_full.yaml`: random start; the goal is the block on the green T.
 - `eval.img_size` must match the `img_size` the run was trained with (the `img112` in the folder name).
 
 For the full steps (getting a run from the bucket, overrides, where the results go: the run's `eval/` folder), see [evaluation.md](evaluation.md).

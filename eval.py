@@ -17,13 +17,11 @@ import time
 import warnings
 from typing import Any
 
-import gymnasium as gym
 import hydra
 import numpy as np
 import stable_pretraining as spt
 import torch
 from omegaconf import DictConfig, OmegaConf
-from PIL import Image
 from sklearn import preprocessing
 from torchvision.transforms import v2 as transforms
 import stable_worldmodel as swm
@@ -32,58 +30,6 @@ import stable_worldmodel as swm
 warnings.filterwarnings(
     "ignore", message="lancedb fork support is experimental", category=RuntimeWarning
 )
-
-def block_goal_error(env: Any) -> tuple[float, float]:
-    """(position, angle) error of a PushT block from the green-T goal_pose."""
-    pos_diff = np.linalg.norm(np.asarray(env.block.position) - env.goal_pose[:2])
-    angle_diff = abs((env.block.angle - env.goal_pose[2] + np.pi) % (2 * np.pi) - np.pi)
-    return pos_diff, angle_diff
-
-
-class BlockOnGoalSuccess(gym.Wrapper):
-    """Full-solve success: the block is on the green-T goal_pose.
-
-    Uses the env's own thresholds (position < 20, angle < pi/9) but on the
-    block only, ignoring the agent position that PushT's eval_state includes.
-    """
-
-    def step(
-        self, action: np.ndarray
-    ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
-        obs, reward, _, truncated, info = self.env.step(action)
-        pos_diff, angle_diff = block_goal_error(self.env.unwrapped)
-        terminated = bool(pos_diff < 20 and angle_diff < np.pi / 9)
-        return obs, reward, terminated, truncated, info
-
-
-def evaluate_full_solve(
-    cfg: DictConfig, world: swm.World, video_path: Path
-) -> dict[str, Any]:
-    """Run num_eval episodes from random starts toward the green-T goal_pose.
-
-    The goal image is rendered with the block on goal_pose and the agent at
-    eval.goal_agent_pos (where expert demos that end on the T leave it).
-    """
-    world.reset(seed=cfg.seed)
-    goal_pose = world.envs.envs[0].unwrapped.goal_pose
-    goal_state = np.concatenate([cfg.eval.goal_agent_pos, goal_pose, [0.0, 0.0]])
-
-    video_path.mkdir(parents=True, exist_ok=True)
-    metrics = world.evaluate(
-        episodes=cfg.eval.num_eval,
-        seed=cfg.seed,
-        options={"goal_state": goal_state},
-        video=video_path,
-        reset_mode="wait",
-    )
-
-    # with reset_mode="wait", envs that finish early keep recording their frozen
-    # last frame into episode_remaining_*.mp4; those clips are not episodes.
-    for f in video_path.glob("episode_remaining_*.mp4"):
-        f.unlink()
-    Image.fromarray(world.envs.envs[0].unwrapped._goal).save(video_path / "goal.png")
-    return metrics
-
 
 def img_transform(cfg: DictConfig) -> transforms.Compose:
     transform = transforms.Compose(
@@ -174,19 +120,9 @@ def run(cfg: DictConfig) -> None:
         cfg.plan_config.horizon * cfg.plan_config.action_block <= cfg.eval.eval_budget
     ), "Planning horizon must be smaller than or equal to eval_budget"
 
-    # dataset: reach the expert state goal_offset_steps ahead of a dataset start.
-    # full_solve: from a random start, push the block onto the green-T goal_pose.
-    full_solve = cfg.eval.get("mode", "dataset") == "full_solve"
-
     # create world environment
-    if full_solve:
-        cfg.world.max_episode_steps = cfg.eval.eval_budget
-        world = swm.World(
-            **cfg.world, image_shape=(224, 224), extra_wrappers=[BlockOnGoalSuccess]
-        )
-    else:
-        cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
-        world = swm.World(**cfg.world, image_shape=(224, 224))
+    cfg.world.max_episode_steps = 2 * cfg.eval.eval_budget
+    world = swm.World(**cfg.world, image_shape=(224, 224))
 
     dataset = get_dataset(cfg, cfg.eval.dataset_name)
     process = fit_process(cfg, dataset)
@@ -200,50 +136,47 @@ def run(cfg: DictConfig) -> None:
     video_path.mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
-    if full_solve:
-        metrics = evaluate_full_solve(cfg, world, video_path / "full_solve")
-    else:
-        # sample the episodes and the starting indices.
-        # Episodes are addressed positionally (as load_chunk expects), derived from
-        # the dataset's episode lengths/offsets rather than index columns, which
-        # LanceDataset does not expose via column_names/get_row_data.
-        episode_len = np.asarray(dataset.lengths)
-        episode_offsets = np.asarray(dataset.offsets)
-        max_start_idx = episode_len - cfg.eval.goal_offset_steps - 1
+    # sample the episodes and the starting indices.
+    # Episodes are addressed positionally (as load_chunk expects), derived from
+    # the dataset's episode lengths/offsets rather than index columns, which
+    # LanceDataset does not expose via column_names/get_row_data.
+    episode_len = np.asarray(dataset.lengths)
+    episode_offsets = np.asarray(dataset.offsets)
+    max_start_idx = episode_len - cfg.eval.goal_offset_steps - 1
 
-        # per-row episode position and step within the episode
-        row_episode = np.repeat(np.arange(len(episode_len)), episode_len)
-        row_step = np.arange(episode_len.sum()) - np.repeat(episode_offsets - episode_offsets[0], episode_len)
+    # per-row episode position and step within the episode
+    row_episode = np.repeat(np.arange(len(episode_len)), episode_len)
+    row_step = np.arange(episode_len.sum()) - np.repeat(episode_offsets - episode_offsets[0], episode_len)
 
-        # remove all the rows for which step > max_start_idx of its episode
-        valid_mask = row_step <= max_start_idx[row_episode]
-        valid_indices = np.nonzero(valid_mask)[0]
-        print(valid_mask.sum(), "valid starting points found for evaluation.")
+    # remove all the rows for which step > max_start_idx of its episode
+    valid_mask = row_step <= max_start_idx[row_episode]
+    valid_indices = np.nonzero(valid_mask)[0]
+    print(valid_mask.sum(), "valid starting points found for evaluation.")
 
-        g = np.random.default_rng(cfg.seed)
-        random_episode_indices = g.choice(
-            len(valid_indices) - 1, size=cfg.eval.num_eval, replace=False
-        )
+    g = np.random.default_rng(cfg.seed)
+    random_episode_indices = g.choice(
+        len(valid_indices) - 1, size=cfg.eval.num_eval, replace=False
+    )
 
-        random_episode_indices = np.sort(valid_indices[random_episode_indices])
+    random_episode_indices = np.sort(valid_indices[random_episode_indices])
 
-        print(random_episode_indices)
+    print(random_episode_indices)
 
-        eval_episodes = row_episode[random_episode_indices]
-        eval_start_idx = row_step[random_episode_indices]
+    eval_episodes = row_episode[random_episode_indices]
+    eval_start_idx = row_step[random_episode_indices]
 
-        if len(eval_episodes) < cfg.eval.num_eval:
-            raise ValueError("Not enough episodes with sufficient length for evaluation.")
+    if len(eval_episodes) < cfg.eval.num_eval:
+        raise ValueError("Not enough episodes with sufficient length for evaluation.")
 
-        metrics = world.evaluate(
-            dataset=dataset,
-            start_steps=eval_start_idx.tolist(),
-            goal_offset=cfg.eval.goal_offset_steps,
-            eval_budget=cfg.eval.eval_budget,
-            episodes_idx=eval_episodes.tolist(),
-            callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
-            video=video_path,
-        )
+    metrics = world.evaluate(
+        dataset=dataset,
+        start_steps=eval_start_idx.tolist(),
+        goal_offset=cfg.eval.goal_offset_steps,
+        eval_budget=cfg.eval.eval_budget,
+        episodes_idx=eval_episodes.tolist(),
+        callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
+        video=video_path,
+    )
     end_time = time.time()
 
     print(metrics)
