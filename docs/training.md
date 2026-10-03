@@ -63,11 +63,10 @@ uv sync && source .venv/bin/activate
 ```bash
 hf auth login
 wandb login
-export STABLEWM_HOME=/workspace/swm
-export LOCAL_DATASET_DIR=/workspace/swm
+cp .env.example .env
 ```
 
-Point both at the instance's local NVMe disk.
+In `.env`, set `STABLEWM_HOME` to the instance's local NVMe disk, e.g. `export STABLEWM_HOME=/workspace/swm`. `train.py` reads it automatically. Run `source .env` to use `$STABLEWM_HOME` in shell commands too.
 
 ### 3. Download the dataset
 
@@ -138,5 +137,7 @@ python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_100.
 - `--config-name=pusht.yaml`: start from a dataset state; the goal is the expert's state 25 steps later.
 - `--config-name=pusht_full.yaml`: random start; the goal is the block on the green T.
 - `eval.img_size` must match the `img_size` the run was trained with (the `img112` in the folder name).
+
+For the full steps (getting a run from the bucket, overrides, where the results go: the run's `eval/` folder), see [evaluation.md](evaluation.md).
 
 For pretrained checkpoints from the paper, see [checkpoints.md](checkpoints.md). For the baseline training scripts, see the stable-worldmodel [scripts](https://github.com/galilai-group/stable-worldmodel/tree/main/scripts/train) folder.

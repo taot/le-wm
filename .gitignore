@@ -2,3 +2,4 @@ __pycache__/
 /outputs/
 /wandb/
 __marimo__/
+/.env

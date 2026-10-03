@@ -9,14 +9,9 @@ This guide covers where datasets live, how to download them, how to convert HDF5
 
 ## Where datasets live
 
-Every tool looks for datasets in a `datasets/` folder inside a root folder:
+Every tool looks for datasets in `$STABLEWM_HOME/datasets/`. Checkpoints also go under `$STABLEWM_HOME`, in `checkpoints/`. `$STABLEWM_HOME` defaults to `~/.stable_worldmodel`.
 
-| Tool | Root folder |
-|---|---|
-| `train.py`, `eval.py`, `playground.py` | `$LOCAL_DATASET_DIR`, or `$STABLEWM_HOME` if that is not set |
-| `swm convert` | `$STABLEWM_HOME` |
-
-`$STABLEWM_HOME` defaults to `~/.stable_worldmodel`. Checkpoints also go there, under `checkpoints/`.
+Set it once per machine in the repo's `.env` file (copy `.env.example`). `train.py`, `eval.py` and `playground.py` read it automatically. Run `source .env` to use `$STABLEWM_HOME` in the shell commands on this page.
 
 For a root of `/data/swm`:
 
@@ -44,7 +39,7 @@ Training downloads `librakevin/lewm-pusht` automatically on first use, but downl
 
 ```bash
 hf download librakevin/lewm-pusht --repo-type dataset \
-  --local-dir $LOCAL_DATASET_DIR/datasets/librakevin--lewm-pusht
+  --local-dir $STABLEWM_HOME/datasets/librakevin--lewm-pusht
 ```
 
 If it stops partway, run the same command again. Afterward, the folder should contain `pusht_expert_train.lance/`.
@@ -135,7 +130,7 @@ The episode and step counts should be the same for both. To train on it, set `na
 
 ```bash
 docker run --rm -p 8080:8080 \
-    -v $LOCAL_DATASET_DIR/datasets/librakevin--lewm-pusht:/data:ro \
+    -v $STABLEWM_HOME/datasets/librakevin--lewm-pusht:/data:ro \
     ghcr.io/lance-format/lance-data-viewer:lancedb-0.36.0
 ```
 

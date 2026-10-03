@@ -1,4 +1,10 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# STABLEWM_HOME (storage root) from the repo's .env; a value set in the shell wins.
+load_dotenv(Path(__file__).parent / ".env")
 
 os.environ["MUJOCO_GL"] = "egl"
 # Cloud containers often report every host CPU (e.g. 252 on RunPod) while the
@@ -9,7 +15,6 @@ os.environ.setdefault("MKL_NUM_THREADS", "8")
 
 import time
 import warnings
-from pathlib import Path
 from typing import Any
 
 import gymnasium as gym
@@ -93,7 +98,7 @@ def img_transform(cfg: DictConfig) -> transforms.Compose:
 
 
 def get_dataset(cfg: DictConfig, dataset_name: str) -> Any:
-    cache_dir = cfg.get("cache_dir") or os.environ.get("LOCAL_DATASET_DIR", None)
+    cache_dir = cfg.get("cache_dir")  # None: $STABLEWM_HOME
     dataset = swm.data.load_dataset(
         dataset_name,
         cache_dir=cache_dir,
@@ -143,6 +148,25 @@ def build_policy(
     )
 
 
+def eval_paths(policy: str) -> tuple[Path, Path]:
+    """(results folder, video folder) for a policy, kept inside its run folder.
+
+    policy=<env>/<subdir>/weights_epoch_NNN.pt -> checkpoints/<env>/<subdir>/eval/
+    for the results files (appended, shared by all epochs) and .../eval/weights_epoch_NNN/
+    for the videos. A run folder or HF repo name uses checkpoints/<name>/eval/;
+    policy=random uses $STABLEWM_HOME/eval/random/.
+    """
+    if policy == "random":
+        results_path = Path(swm.data.utils.get_cache_dir(), "eval", "random")
+        return results_path, results_path
+    ckpt = Path(swm.data.utils.get_cache_dir(sub_folder="checkpoints"), policy)
+    if ckpt.suffix == ".pt":
+        results_path = ckpt.parent / "eval"
+        return results_path, results_path / ckpt.stem
+    results_path = ckpt / "eval"
+    return results_path, results_path
+
+
 @hydra.main(version_base=None, config_path="./config/eval", config_name="pusht")
 def run(cfg: DictConfig) -> None:
     """Run evaluation of dinowm vs random policy."""
@@ -168,18 +192,16 @@ def run(cfg: DictConfig) -> None:
     process = fit_process(cfg, dataset)
     policy = build_policy(cfg, process)
 
-    results_path = (
-        Path(swm.data.utils.get_cache_dir(), cfg.policy).parent
-        if cfg.policy != "random"
-        else Path(__file__).parent
-    )
+    results_path, video_path = eval_paths(cfg.policy)
+    print(f"results: {results_path / cfg.output.filename}")
+    print(f"videos:  {video_path}")
 
     world.set_policy(policy)
-    results_path.mkdir(parents=True, exist_ok=True)
+    video_path.mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
     if full_solve:
-        metrics = evaluate_full_solve(cfg, world, results_path / "full_solve")
+        metrics = evaluate_full_solve(cfg, world, video_path / "full_solve")
     else:
         # sample the episodes and the starting indices.
         # Episodes are addressed positionally (as load_chunk expects), derived from
@@ -220,16 +242,14 @@ def run(cfg: DictConfig) -> None:
             eval_budget=cfg.eval.eval_budget,
             episodes_idx=eval_episodes.tolist(),
             callables=OmegaConf.to_container(cfg.eval.get("callables"), resolve=True),
-            video=results_path,
+            video=video_path,
         )
     end_time = time.time()
 
     print(metrics)
 
-    results_path = results_path / cfg.output.filename
-    results_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with results_path.open("a") as f:
+    results_file = results_path / cfg.output.filename
+    with results_file.open("a") as f:
         f.write("\n")  # separate from previous runs
 
         f.write("==== CONFIG ====\n")

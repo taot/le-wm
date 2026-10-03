@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.10.*"
 resolution-markers = [
     "sys_platform != 'emscripten'",
@@ -1596,6 +1596,7 @@ dependencies = [
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "pydantic-ai" },
+    { name = "python-dotenv" },
     { name = "scikit-learn" },
     { name = "stable-pretraining" },
     { name = "stable-worldmodel", extra = ["env", "format", "train"] },
@@ -1613,6 +1614,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "omegaconf", specifier = ">=2.3" },
     { name = "pydantic-ai" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "scikit-learn" },
     { name = "stable-pretraining", specifier = ">=0.1.7" },
     { name = "stable-worldmodel", extras = ["train", "env", "format"], specifier = ">=0.1.1" },

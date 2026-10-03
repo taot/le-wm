@@ -22,6 +22,7 @@ dependencies = [
     "scikit-learn",
     "marimo",
     "pydantic_ai",
+    "python-dotenv>=1.0",
 ]
 
 [tool.uv]

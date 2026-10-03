@@ -21,10 +21,11 @@ uv sync
 source .venv/bin/activate
 ```
 
-**Data:** datasets and checkpoints are stored under `$STABLEWM_HOME` (default `~/.stable_worldmodel`). The PushT dataset downloads automatically on first use. To download it yourself, use other environments, or convert `.h5` files, see [docs/datasets.md](docs/datasets.md).
+**Data:** datasets and checkpoints are stored under `$STABLEWM_HOME` (default `~/.stable_worldmodel`). Set it once per machine in a git-ignored `.env` file, which the scripts read automatically:
 ```bash
-export STABLEWM_HOME=/path/to/your/storage
+cp .env.example .env
 ```
+The PushT dataset downloads automatically on first use. To download it yourself, use other environments, or convert `.h5` files, see [docs/datasets.md](docs/datasets.md).
 
 **Train:**
 ```bash
@@ -36,6 +37,7 @@ Pass the wandb settings on the command line; values in `lewm.yaml` get overwritt
 ```bash
 python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_100.pt eval.img_size=112
 ```
+Results and videos go to the run's `eval/` folder (see [docs/evaluation.md](docs/evaluation.md)).
 
 **Playground:** drive the PushT agent with the mouse, or hand control to the planner. Takes the same overrides as `eval.py`:
 ```bash
@@ -46,6 +48,7 @@ Then open http://localhost:8000. On a remote GPU machine, tunnel the port first:
 ## Documentation
 
 - [docs/training.md](docs/training.md): GPU choice, time estimates, running on a cloud machine, checkpoints, resuming, evaluation.
+- [docs/evaluation.md](docs/evaluation.md): evaluating a trained checkpoint, locally or on a cloud GPU, and reading the results.
 - [docs/datasets.md](docs/datasets.md): where datasets live, downloading, HDF5 → Lance conversion, browsing a dataset.
 - [docs/pusht_dataset.md](docs/pusht_dataset.md): what is inside the PushT dataset.
 - [docs/checkpoints.md](docs/checkpoints.md): the paper's pretrained LeWM and baseline checkpoints.
