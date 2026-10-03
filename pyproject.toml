@@ -25,6 +25,9 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[tool.ruff.lint]
+ignore = ["I001"]
+
 [tool.uv]
 # Flat script layout (train.py, eval.py, jepa.py, ...), not an installable package.
 package = false

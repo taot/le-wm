@@ -79,7 +79,7 @@ Read `img_size` from the run folder name (`img112` means 112) and pass it as `ev
 **From dataset states** (the default, 50 episodes):
 
 ```bash
-python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_100.pt eval.img_size=112
+python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_003.pt eval.img_size=112
 ```
 
 Each episode starts from a state in the dataset, and the goal is the expert's state 25 steps later. The planner has 50 steps to reach it.
