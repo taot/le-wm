@@ -1,4 +1,4 @@
-env: cube # checkpoint folder in the bucket; matches config/eval/cube.yaml
+env: cube # checkpoint folder name; matches config/eval/cube.yaml
 dataset:
   name: ogbench/cube_single_expert.h5
   num_steps: ${eval:'${num_preds} + ${history_size}'}

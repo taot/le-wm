@@ -5,7 +5,7 @@
 What this fork adds on top of the original:
 
 - PushT is trained on a Lance copy of the dataset ([`librakevin/lewm-pusht`](https://huggingface.co/datasets/librakevin/lewm-pusht)), which is faster to load.
-- Checkpoints can be backed up to a Hugging Face bucket, and runs can be resumed from it.
+- Training runs can be resumed from their last epoch.
 - A web playground for PushT.
 - Guides for training on a cloud GPU and for working with the datasets.
 

@@ -1,4 +1,4 @@
-env: reacher # checkpoint folder in the bucket; matches config/eval/reacher.yaml
+env: reacher # checkpoint folder name; matches config/eval/reacher.yaml
 dataset:
   num_steps: ${eval:'${num_preds} + ${history_size}'}
   frameskip: 5

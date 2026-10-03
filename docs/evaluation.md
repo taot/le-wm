@@ -8,7 +8,6 @@ For how checkpoints are produced, see [training.md](training.md#checkpoints). Fo
 
 - An NVIDIA GPU with CUDA. `eval.py` moves the model to `cuda`, so it does not run on CPU. A small laptop GPU works, but CEM planning is several times slower than on a cloud GPU.
 - The repo set up with `uv sync && source .venv/bin/activate` (see [training.md](training.md#1-set-up-the-code)).
-- `hf auth login`, if the checkpoint is in a private Hugging Face bucket.
 
 ## How paths work
 
@@ -41,7 +40,7 @@ cp .env.example .env
 | Your own machine | keep the default, `${HOME}/.stable_worldmodel` |
 | Cloud GPU machine | the fast local disk, e.g. `/workspace/swm` |
 
-`.env` is git-ignored, so each machine keeps its own. `train.py`, `eval.py` and `playground.py` read it automatically. To use `$STABLEWM_HOME` in shell commands (like `hf buckets sync` below), load it into each new shell:
+`.env` is git-ignored, so each machine keeps its own. `train.py`, `eval.py` and `playground.py` read it automatically. To use `$STABLEWM_HOME` in shell commands, load it into each new shell:
 
 ```bash
 source .env
@@ -53,19 +52,7 @@ A value already exported in the shell takes priority over `.env`.
 
 If the run was trained on this machine, it is already in place. Skip to step 3.
 
-If the run was backed up to the Hugging Face bucket (`bucket.enabled=True` during training), list the runs and epochs that are there:
-
-```bash
-hf buckets ls librakevin/lewm-checkpoints -R
-```
-
-Then copy the run folder down, replacing `<subdir>` with the run's folder name:
-
-```bash
-hf buckets sync hf://buckets/librakevin/lewm-checkpoints/pusht/<subdir> $STABLEWM_HOME/checkpoints/pusht/<subdir>
-```
-
-This copies every epoch. Running it again later fetches only new files, so you can repeat it while training is still running.
+If it was trained on another machine, copy its run folder to `$STABLEWM_HOME/checkpoints/<env>/<subdir>/` here, e.g. with `scp -r`.
 
 ## 3. Get the dataset
 
@@ -132,12 +119,6 @@ evaluation_time: ... seconds
 ```
 
 `success_rate` (in percent) is the main number. `episode_successes` shows which episodes succeeded. The metrics are also printed at the end of the console output.
-
-To keep the results with the run's backup, upload the folder to the bucket:
-
-```bash
-hf buckets sync $STABLEWM_HOME/checkpoints/pusht/<subdir>/eval hf://buckets/librakevin/lewm-checkpoints/pusht/<subdir>/eval
-```
 
 To watch the videos from a cloud machine, copy the folder to your own machine. Write the remote path out in full, because the remote `$STABLEWM_HOME` is not set on your machine:
 

@@ -113,18 +113,13 @@ Each run writes one folder, `$STABLEWM_HOME/checkpoints/<env>/<subdir>/`:
 | `weights_epoch_NNN.pt` | model weights after each epoch |
 | `lewm_weights.ckpt` | full training state, used to resume |
 
-### Back up to a Hugging Face bucket
+### Resume a run
 
-Add `bucket.enabled=True` to mirror the run folder to `hf://buckets/librakevin/lewm-checkpoints/<env>/<subdir>/`. It syncs in the background every `bucket.every_n_epochs` epochs (default 5), and once more when training ends or crashes. It uses your `hf auth login`.
-
-To resume on a new machine, pull the run folder, then pass the same `subdir`:
+Pass the run's `subdir` again; training continues from `lewm_weights.ckpt`:
 
 ```bash
-hf buckets sync hf://buckets/librakevin/lewm-checkpoints/pusht/<subdir> $STABLEWM_HOME/checkpoints/pusht/<subdir>
-python train.py data=pusht subdir=<subdir> bucket.enabled=True
+python train.py data=pusht subdir=<subdir>
 ```
-
-The same `hf buckets sync` command copies a run to your own machine, e.g. to use it in the playground.
 
 ## Evaluating a run
 
@@ -137,6 +132,6 @@ python eval.py --config-name=pusht.yaml policy=pusht/<subdir>/weights_epoch_100.
 - `--config-name=pusht.yaml`: start from a dataset state; the goal is the expert's state 25 steps later.
 - `eval.img_size` must match the `img_size` the run was trained with (the `img112` in the folder name).
 
-For the full steps (getting a run from the bucket, overrides, where the results go: the run's `eval/` folder), see [evaluation.md](evaluation.md).
+For the full steps (overrides, where the results go: the run's `eval/` folder), see [evaluation.md](evaluation.md).
 
 For pretrained checkpoints from the paper, see [checkpoints.md](checkpoints.md). For the baseline training scripts, see the stable-worldmodel [scripts](https://github.com/galilai-group/stable-worldmodel/tree/main/scripts/train) folder.

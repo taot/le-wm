@@ -16,7 +16,7 @@ from lightning.pytorch.loggers import WandbLogger
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 from module import SIGReg
-from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback, ResumeCkptCallback, BucketSyncCallback
+from utils import get_column_normalizer, get_img_preprocessor, SaveCkptCallback, ResumeCkptCallback
 
 
 def lejepa_forward(
@@ -125,10 +125,6 @@ def run(cfg: DictConfig) -> None:
         SaveCkptCallback(run_name=cfg.run_name, cfg=cfg.model, epoch_interval=1),
         ResumeCkptCallback(run_dir / f"{ckpt_name}.ckpt"),
     ]
-    if cfg.bucket.enabled:
-        callbacks.append(BucketSyncCallback(
-            run_dir, f"{cfg.bucket.uri}/{cfg.run_name}", every_n_epochs=cfg.bucket.every_n_epochs,
-        ))
 
     trainer = pl.Trainer(
         **cfg.trainer,
