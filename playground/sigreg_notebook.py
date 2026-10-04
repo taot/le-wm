@@ -945,7 +945,7 @@ def _(mo):
     ### 5.1 一个细节：完全坍缩时梯度没有用
 
     如果所有点 **完全相同**，那么每个点得到的梯度也完全相同。
-    所有点会一起移动，永远不会分开。下面验证这一点：
+    所有点会一起移动，不会分开。下面先验证一步的梯度：
     """)
     return
 
@@ -958,11 +958,100 @@ def _(SIGReg, mo, torch):
     _loss.backward()
     _spread = (_z.grad - _z.grad.mean(0)).abs().max().item()
     mo.md(
-        f"loss = {_loss.item():.1f}。不同点之间梯度的最大差异 = **{_spread:.2e}**（约等于 0，只是浮点误差）。\n\n"
-        "所以 SIGReg 本身不能「从一个点里」把点分开。实际训练中这不是问题："
-        "不同的图像输入会给出不同的 embedding，梯度通过 encoder 传回，"
-        "SIGReg 会阻止 encoder 走向坍缩。上面的实验加了一点点噪声（std 0.05），所以可以分开。"
+        f"loss = {_loss.item():.1f}。不同点之间梯度的最大差异 = **{_spread:.2e}**（约等于 0，只是浮点误差）。"
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    **多做一些 step 会怎样？** 下面从同一个点 (0.5, 0.5) 开始，只用 SIGReg 训练 1000 步，比较三种起点：
+
+    - **噪声 = 0**：256 个点完全相同。
+    - **噪声 = 1e-6**：每个点加一点点噪声，小到肉眼看不出来。
+    - **噪声 = 1e-3**：噪声稍大一点。
+
+    "不同的点数"是指坐标 **完全相同** 的点算作一个，一共有几个不同的位置。
+    """)
+    return
+
+
+@app.cell
+def _(SIGReg, mo, np, plt, torch):
+    def run_from_point(noise: float, steps: int = 1000) -> tuple[list[float], list[int], np.ndarray]:
+        """Train 256 points that start at (0.5, 0.5) with SIGReg only."""
+        torch.manual_seed(0)
+        z = torch.full((256, 2), 0.5) + noise * torch.randn(256, 2)
+        z.requires_grad_(True)
+        opt = torch.optim.Adam([z], lr=0.03)
+        reg = SIGReg(num_proj=64)
+        losses: list[float] = []
+        n_distinct: list[int] = []
+        for _ in range(steps):
+            loss = reg(z.unsqueeze(0))
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            losses.append(loss.item())
+            n_distinct.append(len(torch.unique(z.detach(), dim=0)))
+        return losses, n_distinct, z.detach().numpy()
+
+    _runs = {_noise: run_from_point(_noise) for _noise in [0.0, 1e-6, 1e-3]}
+
+    _fig, _axes = plt.subplots(1, 4, figsize=(17, 3.6))
+    for _noise, (_losses, _nd, _zf) in _runs.items():
+        _axes[0].plot(_losses, lw=0.8, label=f"noise={_noise:g}")
+        _axes[1].plot(_nd, lw=1, label=f"noise={_noise:g}")
+    _axes[0].set_yscale("log")
+    _axes[0].set_xlabel("step")
+    _axes[0].set_title("SIGReg loss")
+    _axes[0].legend(fontsize=8)
+    _axes[1].set_yscale("log")
+    _axes[1].set_xlabel("step")
+    _axes[1].set_title("Number of distinct points")
+    _axes[1].legend(fontsize=8)
+    for _ax, _noise in zip(_axes[2:], [0.0, 1e-6]):
+        _zf = _runs[_noise][2]
+        _ax.scatter(_zf[:, 0], _zf[:, 1], s=6, alpha=0.4)
+        _ax.set_xlim(-4, 4)
+        _ax.set_ylim(-4, 4)
+        _ax.set_aspect("equal")
+        _ax.set_title(f"noise={_noise:g}: after 1000 steps")
+    _fig.tight_layout()
+
+    _rows = []
+    for _noise, (_losses, _nd, _zf) in _runs.items():
+        _pts, _counts = np.unique(_zf, axis=0, return_counts=True)
+        _rows.append({
+            "噪声": f"{_noise:g}",
+            "最后 50 步的平均 loss": round(float(np.mean(_losses[-50:])), 2),
+            "不同的点数": _nd[-1],
+            "最大的几组（每组的点数）": str(sorted(_counts.tolist(), reverse=True)[:5]),
+        })
+    mo.vstack([_fig, mo.ui.table(_rows, selection=None, pagination=False)])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    **观察：**
+
+    - **噪声 = 1e-6 和 1e-3**：一开始所有点几乎重合，loss 很大。但是点之间的微小差别会被梯度放大，
+      几百步以后，点云变成了 N(0, I)，loss 降到接近 0。噪声越大，分开得越快。
+    - **噪声 = 0**：多做 step 也没有用。256 个点一开始完全相同，梯度也完全相同，所以它们一起移动。
+      过了几十步，**浮点舍入误差** 让点分成了 **2 组**（在写这个 notebook 时的测试中，是 252 个点和 4 个点。
+      这和 CPU 怎样分批计算有关，在别的机器上可能不同）。
+      但是每一组里面的点仍然 **完全相同**，梯度也完全相同，所以组内的点永远分不开。
+      最后只有 2 个不同的位置，loss 停在一个很大的值，不再下降。
+
+    **结论：** SIGReg 本身不能「从一个点里」把点分开。只要有一点点差别，它就能把点推开；
+    但是完全相同的点，多少步都没有用。
+
+    实际训练中这不是问题：不同的图像输入会给出不同的 embedding，梯度通过 encoder 传回，
+    SIGReg 会阻止 encoder 走向坍缩。第 5 节的实验也加了一点噪声（std 0.05），所以可以分开。
+    """)
     return
 
 
