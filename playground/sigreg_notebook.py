@@ -118,10 +118,10 @@ def _(mo):
     f'(t) = \Big[\sin(tx)\, p(x)\Big]_{-\infty}^{\infty} - \int_{-\infty}^{\infty} t \cos(tx)\, p(x)\, dx .
     $$
 
-    第一项是 0，因为 $x \to \pm\infty$ 时 $p(x) \to 0$。第二项里的积分正好是 $f(t)$。所以
+    第一项是 0，因为 $x \to \pm\infty$ 时 $p(x) \to 0$。第二项里的积分正好是 $f(t)$。所以得到这个推导中最关键的方程：
 
     $$
-    \boxed{f'(t) = -t\, f(t)} .
+    f'(t) = -t\, f(t) .
     $$
 
     **第 4 步：初始值。** $f(0) = \int p(x)\, dx = 1$（任何密度的积分都是 1）。
@@ -392,24 +392,134 @@ def _(mo):
     mo.md(r"""
     ### 2.1 为什么乘以 N？
 
-    这是统计检验的标准做法。它让 $T$ 在 "样本真的是 N(0,1)" 时有一个 **不依赖 N 的** 大小。
+    **一句话：** 乘以 $N$，是为了让"完全正确"的样本总是得到差不多相同的分数（约 1.05），
+    不管样本有多少。这样就可以用一个固定的标准判断"像不像 N(0,1)"。
 
-    **原因：** 如果样本真的来自 N(0,1)，$\hat\varphi(t)$ 是 $N$ 个独立随机量 $e^{itx_j}$ 的平均。
-    每个的方差是 $\mathbb{E}|e^{itX}|^2 - |\varphi(t)|^2 = 1 - e^{-t^2}$。所以
+    先看一个更简单的例子（抛硬币），再回到 SIGReg。
+
+    #### 例子：一枚硬币是不是公平的？
+
+    抛 $N$ 次，正面的比例是 $\hat p$。公平硬币的正面概率是 0.5，所以我们看误差 $(\hat p - 0.5)^2$。
+
+    **情况 A：硬币是公平的。** $\hat p$ 不会正好是 0.5，因为有随机误差。$N$ 越大，误差越小。
+    下面会证明：
 
     $$
-    \mathbb{E}\,\big|\hat\varphi(t) - \varphi(t)\big|^2 = \frac{1 - e^{-t^2}}{N}
-    \quad\Longrightarrow\quad
-    \mathbb{E}[T] = \int_{-3}^{3} (1 - e^{-t^2})\, e^{-t^2/2}\, dt \approx 1.05 .
+    \mathbb{E}\big[(\hat p - 0.5)^2\big] = \frac{0.25}{N} .
     $$
 
-    $N$ 被消掉了！所以：
+    | $N$ | 误差 $(\hat p - 0.5)^2$ 大约是 | $N \times$ 误差 |
+    |---|---|---|
+    | 100 | 0.0025 | **0.25** |
+    | 10000 | 0.000025 | **0.25** |
 
-    - **样本是 N(0,1)**：$T \approx 1.05$，不随 $N$ 变化。这是 loss 的"底"，SIGReg loss 不会降到 0。
-    - **样本不是 N(0,1)**：$\hat\varphi \to \varphi_{\text{真实}} \neq \varphi$，误差积分趋向一个正常数，
-      所以 $T$ 随 $N$ **线性增长**。
+    **情况 B：硬币不公平，正面概率是 0.6。** $N$ 很大时 $\hat p \to 0.6$，
+    误差 $\to (0.6 - 0.5)^2 = 0.01$，不再减小。
 
-    在训练里，$N$ 就是 batch size $B$。所以 **batch size 越大，SIGReg 对非高斯的惩罚越强**。
+    | $N$ | 误差 $(\hat p - 0.5)^2$ 大约是 | $N \times$ 误差 |
+    |---|---|---|
+    | 100 | 0.01 | **1** |
+    | 10000 | 0.01 | **100** |
+
+    **看两张表的最后一列：**
+
+    - 只看误差：它的大小依赖于 $N$。0.0025 是大还是小？不知道 $N$ 就没法判断。
+    - 看 **$N \times$ 误差**：公平硬币 **总是约 0.25**，和 $N$ 无关；不公平的硬币 **随 $N$ 一起变大**。
+
+    所以乘以 $N$ 以后，我们有了一个固定的标准：约 0.25 就是"正常"，远大于 0.25 就是"不公平"。
+
+    #### 0.25/N 是怎么算出来的？
+
+    第 $j$ 次抛硬币，正面记 $Y_j = 1$，反面记 $Y_j = 0$。正面的比例就是平均值：
+
+    $$
+    \hat p = \frac{1}{N}\sum_{j=1}^{N} Y_j .
+    $$
+
+    **第 1 步：这个"误差"就是方差。** 每个 $\mathbb{E}[Y_j] = 1 \cdot 0.5 + 0 \cdot 0.5 = 0.5$，
+    所以 $\mathbb{E}[\hat p] = 0.5$。方差的定义是 $\mathrm{Var}(Z) = \mathbb{E}\big[(Z - \mathbb{E}[Z])^2\big]$，所以
+
+    $$
+    \mathbb{E}\big[(\hat p - 0.5)^2\big] = \mathrm{Var}(\hat p) .
+    $$
+
+    **第 2 步：一次抛硬币的方差是 0.25。** 用 $\mathrm{Var}(Y) = \mathbb{E}[Y^2] - (\mathbb{E}[Y])^2$。
+    $Y$ 只能是 0 或 1，所以 $Y^2 = Y$，$\mathbb{E}[Y^2] = 0.5$。因此
+
+    $$
+    \mathrm{Var}(Y_j) = 0.5 - 0.5^2 = 0.25 .
+    $$
+
+    **第 3 步：N 次的平均值，方差变成 1/N。** 用方差的两个性质：
+
+    1. 常数提出来要平方：$\mathrm{Var}(cZ) = c^2\, \mathrm{Var}(Z)$。
+    2. 独立随机变量的和，方差可以相加。每次抛硬币互相独立，所以可以用。
+
+    $$
+    \mathrm{Var}(\hat p)
+    = \mathrm{Var}\Big(\frac{1}{N}\sum_j Y_j\Big)
+    \overset{\text{性质 1}}{=} \frac{1}{N^2}\, \mathrm{Var}\Big(\sum_j Y_j\Big)
+    \overset{\text{性质 2}}{=} \frac{1}{N^2} \cdot N \cdot 0.25
+    = \frac{0.25}{N} .
+    $$
+
+    分母里的 $N^2$ 来自"平均值的 $1/N$ 要平方"，分子里的 $N$ 来自"$N$ 个方差相加"。
+    两者相除，剩下 $1/N$。
+
+    这是一个普遍的规律：**$N$ 个独立样本的平均值，方差是单个样本方差的 $1/N$。**
+
+    #### 回到 SIGReg：完全一样的道理
+
+    | 硬币 | SIGReg |
+    |---|---|
+    | 一次抛硬币 $Y_j$ | 一个样本的 $e^{itx_j}$ |
+    | 正面比例 $\hat p$ | 经验特征函数 $\hat\varphi(t)$ |
+    | 公平硬币的 0.5 | N(0,1) 的 $e^{-t^2/2}$ |
+    | 误差 $(\hat p - 0.5)^2$ | 加权积分 $I = \int \lvert\hat\varphi - \varphi\rvert^2 w\, dt$ |
+    | 单次的方差 0.25 | 单个样本的方差 $1 - e^{-t^2}$ |
+    | 抛硬币次数 $N$ | batch size $B$（不是 knots 的个数 17） |
+
+    **同样的 3 步：** 如果样本真的来自 N(0,1)：
+
+    1. $\hat\varphi(t)$ 是平均值，它的期望是 $\varphi(t)$。所以误差 $\mathbb{E}\lvert\hat\varphi(t) - \varphi(t)\rvert^2$ 就是方差。
+    2. 单个 $e^{itX}$ 的方差是 $\mathbb{E}\lvert e^{itX}\rvert^2 - \lvert\varphi(t)\rvert^2 = 1 - e^{-t^2}$
+       （因为 $\lvert e^{i\theta}\rvert = 1$）。
+    3. 平均 $N$ 个样本，方差除以 $N$：
+
+    $$
+    \mathbb{E}\,\big|\hat\varphi(t) - \varphi(t)\big|^2 = \frac{1 - e^{-t^2}}{N} .
+    $$
+
+    再乘以权重、在 $t$ 上积分：
+
+    $$
+    \mathbb{E}[I] = \frac{1}{N}\int_{-3}^{3} (1 - e^{-t^2})\, e^{-t^2/2}\, dt \approx \frac{1.05}{N} .
+    $$
+
+    所以 1.05 在 SIGReg 里的作用，就和 0.25 在硬币例子里的作用一样。
+
+    **一般情况下**，积分 $I$ 由两部分组成：
+
+    $$
+    I \;\approx\; \underbrace{D}_{\text{真实的差距}} \;+\; \underbrace{\frac{1.05}{N}}_{\text{抽样噪声}}
+    \qquad\Longrightarrow\qquad
+    T = N \cdot I \;\approx\; N \cdot D + 1.05 .
+    $$
+
+    其中 $D$ 是样本的真实分布和 N(0,1) 的差距。
+
+    - **样本是 N(0,1)**（$D = 0$）：$T \approx 1.05$，**不管 $N$ 是多少**。
+      这是 loss 的"底"，SIGReg loss 不会降到 0。
+    - **样本不是 N(0,1)**（$D > 0$）：$T \approx N \cdot D + 1.05$，**随 $N$ 线性变大**。
+
+    #### 对训练有什么影响？
+
+    - **在训练中，$B$ 是固定的**（`batch_size: 128`）。所以乘以 $B$ 只是把 loss 乘以一个常数。
+      它不改变"什么样的 embedding 最好"，只改变 SIGReg loss 的大小，等价于调整 $\lambda$。
+    - 乘以 $N$ 的真正好处是 **loss 的数值有了意义**：看到 SIGReg loss ≈ 1，
+      就知道 embedding 已经和高斯分布分不出来了；看到 50，就知道还差得很远。这对任何 batch size 都成立。
+    - **一个实际后果：** 如果把 batch size 从 128 改成 512，在 embedding 不是高斯的时候，
+      SIGReg loss 会变大约 4 倍，相当于 $\lambda$ 变大了 4 倍。所以改 batch size 时，可能要重新调 $\lambda$。
 
     下面的实验验证这一点。每个点是 20 次重复的平均值。
     """)
