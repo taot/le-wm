@@ -238,8 +238,8 @@ def _(mo):
 
     $$
     \big|\hat\varphi(t) - \varphi(t)\big|^2
-    = \Big(\underbrace{\tfrac1N\textstyle\sum_j \cos(t x_j)}_{\text{cos 平均}} - e^{-t^2/2}\Big)^2
-    + \Big(\underbrace{\tfrac1N\textstyle\sum_j \sin(t x_j)}_{\text{sin 平均}}\Big)^2 .
+    = \Big(\underbrace{\tfrac1N\textstyle\sum_j \cos(t x_j)}_{\text{cos 平均}} - e^{-t^2/2}\Big)^2 +
+    \Big(\underbrace{\tfrac1N\textstyle\sum_j \sin(t x_j)}_{\text{sin 平均}}\Big)^2 .
     $$
 
     这正是代码里的这一行：
