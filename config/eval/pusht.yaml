@@ -41,6 +41,6 @@ eval:
       args:
         goal_state:
           value: goal_state
-          
+
 output:
   filename: pusht_results.txt
