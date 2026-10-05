@@ -29,7 +29,7 @@ if [ ! -d le-wm ]; then
 else
     log "le-wm already exists, skipping clone"
 fi
-grep -qxF 'source ~/le-wm/.env' ~/.bashrc || echo 'source ~/le-wm/.env' >> ~/.bashrc
+grep -qxF 'source ~/le-wm/.env-runpod' ~/.bashrc || echo 'source ~/le-wm/.env-runpod' >> ~/.bashrc
 
 cd ~/le-wm
 log "Running uv sync"
