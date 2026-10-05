@@ -21,7 +21,6 @@ log() {
 log "Installing apt packages"
 apt update
 apt install gh
-export UV_CACHE_DIR=/root/.cache/uv-local UV_LINK_MODE=copy
 
 cd ~
 if [ ! -d le-wm ]; then
@@ -30,6 +29,7 @@ if [ ! -d le-wm ]; then
 else
     log "le-wm already exists, skipping clone"
 fi
+grep -qxF 'source ~/le-wm/.env' ~/.bashrc || echo 'source ~/le-wm/.env' >> ~/.bashrc
 
 cd ~/le-wm
 log "Running uv sync"
@@ -44,7 +44,6 @@ log "Logging in to wandb"
 uv run wandb login "$(<~/secrets/wandb)"
 
 log "Downloading dataset"
-grep -qxF 'source ~/le-wm/.env' ~/.bashrc || echo 'source ~/le-wm/.env' >> ~/.bashrc
 source .env-runpod && uv run hf download librakevin/lewm-pusht --repo-type dataset --local-dir $STABLEWM_HOME/datasets/librakevin--lewm-pusht
 
 log "Downloading checkpoints"
