@@ -29,9 +29,9 @@ else
     log "le-wm already exists, skipping clone"
 fi
 
-export UV_CACHE_DIR=/root/.cache/uv-local UV_LINK_MODE=copy
 cd ~/le-wm
 log "Running uv sync"
+source .env-runpod
 uv sync
 
 log "Logging in to GitHub"
