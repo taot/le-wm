@@ -1,5 +1,7 @@
 set -e
 
+START_TIME=$SECONDS
+
 log() {
     echo
     echo "[$(date '+%H:%M:%S')] [local] $*"
@@ -51,4 +53,5 @@ source .env-runpod && uv run hf buckets sync hf://buckets/librakevin/lewm-checkp
 log "Setup done"
 EOF
 
-log "Done"
+ELAPSED=$((SECONDS - START_TIME))
+log "Done in $((ELAPSED / 60))m $((ELAPSED % 60))s"
