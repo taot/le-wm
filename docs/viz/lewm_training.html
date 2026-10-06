@@ -117,6 +117,13 @@ svg#edges { position: absolute; inset: 0; width: 1300px; height: 760px; overflow
 #panel h2 { font-size: 19px; margin: 4px 0 10px; letter-spacing: -0.01em; }
 .p-text { margin: 0 0 12px; }
 .p-text b { font-weight: 600; }
+.p-plot { margin: 0 0 12px; border: 1px solid var(--line-soft); border-radius: 8px; padding: 6px 4px 2px; }
+.p-plot svg { display: block; width: 100%; height: auto; }
+.p-plot text { font: 10.5px var(--mono); fill: var(--muted); }
+.p-legend { display: grid; gap: 2px; padding: 4px 8px 6px; font-size: 11.5px; color: var(--muted); }
+.p-legend span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.p-legend svg { flex: none; width: 22px; height: 8px; }
+.p-plot .cap { font: 600 11.5px system-ui, sans-serif; fill: var(--ink); }
 .p-op { font-family: var(--mono); font-size: 12.5px; background: #f2f4f7; border-radius: 8px; padding: 9px 11px;
   margin: 0 0 12px; white-space: pre-wrap; word-break: break-word; }
 .p-tensors { display: grid; gap: 6px; margin-bottom: 12px; }
@@ -144,8 +151,8 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   <div class="controls">
     <button class="btn" id="b-reset" title="Back to the beginning (Home)">⟲ Reset</button>
     <button class="btn" id="b-out" title="Zoom out (Esc)">⤴ Zoom out</button>
-    <button class="btn" id="b-prev" title="Previous (←)">← Prev</button>
     <button class="btn" id="b-play" title="Play / pause (Space)">▶ Play</button>
+    <button class="btn" id="b-prev" title="Previous (←)">← Prev</button>
     <button class="btn primary" id="b-next" title="Next (→)">Next →</button>
     <input type="range" id="slider" min="0" max="1" value="0" aria-label="Step">
     <span id="counter"></span>
@@ -220,6 +227,7 @@ function chain(d) {
       title: op.title || op.label,
       text: op.text,
       op: op.code,
+      plot: op.plot,
       active: [op.id],
       edges: [prev + ">" + op.id].concat(op.edges || []),
       t,
@@ -286,7 +294,9 @@ SCENES.top = {
     },
     {
       title: "Keep only the CLS token",
-      text: "Token 0 is the CLS token. It summarizes the whole image. The other 64 tokens are not used.",
+      text: "The encoder gives 65 output vectors per image, but the model needs <b>one</b> vector per image. " +
+        "It takes the vector at position 0, the CLS token. In the 12 blocks, the CLS token read from all 64 patch tokens through attention, " +
+        "so it now holds a summary of the whole image. The outputs of the 64 patch tokens (positions 1–64) are dropped.",
       op: "pixels_emb = output.last_hidden_state[:, 0]",
       active: ["enc"],
       t: { x: { at: "enc", shape: [512, 192], names: ["B·T", "D"], label: "CLS token" } },
@@ -387,7 +397,7 @@ chain({
   input: { label: "pixels", sub: "512 images" },
   x0: { shape: [512, 3, 112, 112], names: ["B·T", "C", "H", "W"], kind: "pix", label: "pixels" },
   introTitle: "Encoder input",
-  intro: "The encoder sees each image alone. All 512 images (128 clips × 4 frames) use the <b>same weights</b>. " +
+  intro: "The encoder sees each image alone. There is <b>only one encoder</b>: all 512 images (128 clips × 4 frames) go through the same network with the same parameters, whatever the clip or time step. The target frames use this encoder too. " +
     "ViT-tiny: hidden size 192, 12 blocks, 3 attention heads, MLP size 768, patch size 14. Random init (not pretrained).",
   ops: [
     { id: "patch", label: "Patch embedding", sub: "Conv2d 14×14, stride 14",
@@ -400,7 +410,10 @@ chain({
       code: "x = x.flatten(2).transpose(1, 2)" },
     { id: "cls", label: "Add CLS token", sub: "learned (1, 1, 192)",
       shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "tokens",
-      text: "A learned CLS token goes in front of the 64 patch tokens. Now there are N = 65 tokens. At the end, only the CLS token is kept.",
+      text: "One more token, the CLS token, goes in front of the 64 patch tokens. Now there are N = 65 tokens. " +
+        "The CLS token holds no pixels: it starts as the same learned vector for every image. " +
+        "In each block, attention lets it read from all patch tokens, so it collects a summary of the image. " +
+        "At the end, only the output at the CLS position is used as the image vector. The 64 patch outputs are dropped.",
       code: "x = torch.cat([cls_token.expand(512, -1, -1), x], dim=1)" },
     { id: "pos", label: "+ Position embedding", sub: "learned (1, 65, 192)",
       shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "tokens",
@@ -413,7 +426,8 @@ chain({
       code: "for layer in layers:\n    x = layer(x)" },
     { id: "ln", label: "Final LayerNorm", sub: "per token",
       shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "last_hidden_state",
-      text: "The output goes back to the top level. There, token 0 (the CLS token) is taken.",
+      text: "The output has all 65 tokens. It goes back to the top level. There, only token 0 (the CLS token) is kept " +
+        "as the image vector, and the 64 patch tokens are dropped.",
       code: "x = layernorm(x)" },
   ],
 });
@@ -487,8 +501,8 @@ chain({
   ops: [
     { id: "fc1", label: "Linear", sub: "192 → 768", shape: [512, 65, 768], names: ["B·T", "N", "768"],
       text: "Make each token wider: 192 → 768 values.", code: "h = fc1(h)" },
-    { id: "gelu", label: "GELU", sub: "activation", shape: [512, 65, 768],
-      text: "A smooth non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "gelu", label: "GELU", sub: "activation", shape: [512, 65, 768], plot: "gelu",
+      text: "GELU(x) = x · Φ(x), where Φ is the standard Gaussian CDF: the chance that a N(0, 1) value is smaller than x. Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down. It is applied to each value alone, so the shape does not change.", code: "h = gelu(h)\n# GELU(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))" },
     { id: "fc2", label: "Linear", sub: "768 → 192", shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "mlp out",
       text: "Back to 192 values per token.", code: "h = fc2(h)" },
   ],
@@ -509,8 +523,8 @@ chain({
     { id: "bn", label: "BatchNorm1d", sub: "2048 features", shape: [512, 2048],
       text: "For each feature: subtract the batch mean and divide by the batch std, then a learned scale and shift.",
       code: "h = BatchNorm1d(2048)(h)" },
-    { id: "act", label: "GELU", sub: "activation", shape: [512, 2048],
-      text: "Non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "act", label: "GELU", sub: "activation", shape: [512, 2048], plot: "gelu",
+      text: "GELU(x) = x · Φ(x), where Φ is the standard Gaussian CDF: the chance that a N(0, 1) value is smaller than x. Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down. It is applied to each value alone, so the shape does not change.", code: "h = gelu(h)\n# GELU(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))" },
     { id: "l2", label: "Linear", sub: "2048 → 192", shape: [512, 192], names: ["B·T", "D"], tlabel: "emb (flat)",
       text: "Back to 192 values. This is z for each image.", code: "emb = Linear(2048, 192)(h)" },
   ],
@@ -528,8 +542,8 @@ chain({
       text: "Make the vector wider.", code: "h = Linear(192, 2048)(p)" },
     { id: "bn", label: "BatchNorm1d", sub: "2048 features", shape: [384, 2048],
       text: "Normalize each feature over the 384 vectors.", code: "h = BatchNorm1d(2048)(h)" },
-    { id: "act", label: "GELU", sub: "activation", shape: [384, 2048],
-      text: "Non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "act", label: "GELU", sub: "activation", shape: [384, 2048], plot: "gelu",
+      text: "GELU(x) = x · Φ(x), where Φ is the standard Gaussian CDF: the chance that a N(0, 1) value is smaller than x. Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down. It is applied to each value alone, so the shape does not change.", code: "h = gelu(h)\n# GELU(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))" },
     { id: "l2", label: "Linear", sub: "2048 → 192", shape: [384, 192], names: ["B·T", "D"],
       text: "Back to 192 values.", code: "p = Linear(2048, 192)(h)" },
     { id: "unfl", label: "Unflatten", sub: "(b t) d → b t d", shape: [128, 3, 192], names: ["B", "T", "D"], tlabel: "pred_emb",
@@ -550,13 +564,20 @@ chain({
     { id: "perm", label: "Permute", sub: "for Conv1d", shape: [128, 10, 4], names: ["B", "A", "T"],
       text: "Conv1d wants channels in the middle, so the axes are swapped.", code: "x = x.permute(0, 2, 1)" },
     { id: "conv", label: "Conv1d", sub: "kernel 1 · 10 → 10", shape: [128, 10, 4],
-      text: "Kernel size 1: this is a linear layer on each time step alone.", code: "x = Conv1d(10, 10, kernel_size=1)(x)" },
+      text: "The 10 action values are the channels and the 4 time steps are the length. With <b>kernel size 1</b>, the kernel sees one time step only. " +
+        "So this is the same as Linear(10, 10) on each time step alone, with the same weights for all 4 steps. It mixes the 10 action values; it does not mix time steps (no smoothing). " +
+        "Note: the next Linear (10 → 768) comes with no activation in between, so the two together are still one linear map.",
+      code: "x = Conv1d(10, 10, kernel_size=1)(x)   # W: (10, 10, 1), bias: (10,)\n# y[b, :, t] = W · x[b, :, t] + bias   for each t" },
     { id: "perm2", label: "Permute back", sub: "", shape: [128, 4, 10], names: ["B", "T", "A"],
       text: "Back to (B, T, A).", code: "x = x.permute(0, 2, 1)" },
     { id: "l1", label: "Linear", sub: "10 → 768", shape: [128, 4, 768], names: ["B", "T", "768"],
       text: "Make it wider: 4 × 192 = 768.", code: "x = Linear(10, 768)(x)" },
-    { id: "silu", label: "SiLU", sub: "activation", shape: [128, 4, 768],
-      text: "Non-linear function: x · sigmoid(x).", code: "x = silu(x)" },
+    { id: "silu", label: "SiLU", sub: "activation", shape: [128, 4, 768], plot: "silu",
+      text: "SiLU(x) = x · σ(x), where σ(x) = 1 / (1 + e^(−x)) is the sigmoid. " +
+        "Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down " +
+        "(it has a small dip below 0, lowest about −0.28 at x ≈ −1.28). It looks like GELU, but uses the sigmoid instead of the Gaussian CDF. " +
+        "It is applied to each value alone, so the shape does not change.",
+      code: "x = silu(x)\n# SiLU(x) = x · σ(x) = x / (1 + e^(−x))" },
     { id: "l2", label: "Linear", sub: "768 → 192", shape: [128, 4, 192], names: ["B", "T", "D"], tlabel: "act_emb",
       text: "Final size 192, the same as z.", code: "act_emb = Linear(768, 192)(x)" },
   ],
@@ -657,8 +678,15 @@ SCENES.condblock = {
     },
     {
       title: "Actions → modulation",
-      text: "SiLU, then a linear layer 192 → 6 × 192 = 1152. This happens per time step: each position gets its own values from its own action.",
-      op: "m = self.adaLN_modulation(c)",
+      text: "<b>AdaLN</b> means <i>adaptive</i> LayerNorm. A normal LayerNorm has a fixed learned scale and shift. " +
+        "Here the scale and shift (and a gate) are <b>computed from the action</b>, so the action controls how the block changes x. " +
+        "This is the only way the actions enter the predictor; they are never added to the tokens.<br><br>" +
+        "adaLN_modulation is a small network: <b>SiLU</b> on c, then <b>Linear 192 → 1152</b> (1152 = 6 × 192: " +
+        "shift, scale and gate for attention, and the same 3 for the MLP). It has 192 × 1152 + 1152 = 222,336 parameters.<br><br>" +
+        "It works on each time step alone: position t gets its values from its own action a<sub>t</sub>. " +
+        "c is the same for all 6 blocks, but each block has its own adaLN_modulation weights, so each block can use the action in its own way.",
+      op: "m = self.adaLN_modulation(c)   # nn.Sequential(nn.SiLU(), nn.Linear(192, 1152))\n# c: (128, 3, 192) -> m: (128, 3, 1152)",
+      plot: "silu",
       active: ["ada"], edges: ["cin>ada"],
       t: { c: { via: "ada", at: "ada", shape: [128, 3, 1152], names: ["B", "T", "6·D"], kind: "mod", label: "modulation" } },
     },
@@ -754,7 +782,7 @@ chain({
   ops: [
     { id: "ln", label: "LayerNorm", sub: "learned", shape: [128, 3, 192], text: "Its own LayerNorm, with learned weights.", code: "h = LayerNorm(192)(h)" },
     { id: "l1", label: "Linear", sub: "192 → 2048", shape: [128, 3, 2048], names: ["B", "T", "2048"], text: "Make it wider.", code: "h = Linear(192, 2048)(h)" },
-    { id: "gelu", label: "GELU", sub: "activation", shape: [128, 3, 2048], text: "Non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "gelu", label: "GELU", sub: "activation", shape: [128, 3, 2048], plot: "gelu", text: "GELU(x) = x · Φ(x), where Φ is the standard Gaussian CDF: the chance that a N(0, 1) value is smaller than x. Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down. It is applied to each value alone, so the shape does not change.", code: "h = gelu(h)\n# GELU(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))" },
     { id: "d1", label: "Dropout", sub: "p = 0.1", shape: [128, 3, 2048], text: "During training, 10% of the values are set to 0 at random.", code: "h = Dropout(0.1)(h)" },
     { id: "l2", label: "Linear", sub: "2048 → 192", shape: [128, 3, 192], names: ["B", "T", "D"], text: "Back to 192.", code: "h = Linear(2048, 192)(h)" },
     { id: "d2", label: "Dropout", sub: "p = 0.1", shape: [128, 3, 192], tlabel: "mlp out", text: "Dropout again.", code: "h = Dropout(0.1)(h)" },
@@ -768,30 +796,66 @@ chain({
   id: "sigreg", title: "SIGReg", perRow: 4,
   input: { label: "emb", sub: "all 4 frames" },
   x0: { shape: [128, 4, 192], names: ["B", "T", "D"], kind: "emb", label: "emb" },
-  intro: "SIGReg (Sketched Isotropic Gaussian Regularizer) wants the 192-value embeddings to look like a <b>standard Gaussian</b>. " +
-    "It tests this along <b>1024 random 1-D directions</b>, with new directions on each call. It uses all 4 frames, not only the context.",
+  intro: "SIGReg (Sketched Isotropic Gaussian Regularizer) is the part of the loss that <b>stops collapse</b>. " +
+    "It wants the embeddings of a batch to look like samples from an isotropic standard Gaussian N(0, I): " +
+    "mean 0, variance 1 in every direction, no correlation between directions. " +
+    "If all embeddings are the same (collapse), or they use only a few directions, they are far from N(0, I) and SIGReg is large.<br><br>" +
+    "A test in 192 dimensions is hard. So SIGReg uses this fact (Cramér–Wold): a distribution is N(0, I) " +
+    "if and only if <b>every 1-D projection</b> onto a unit direction is N(0, 1). " +
+    "It checks 1024 random directions with a 1-D test (Epps–Pulley). It uses all 4 frames, also the target frame.",
+  introOp: "sigreg_loss = sigreg(emb.transpose(0, 1))   # weight λ = 0.09 in the total loss",
   ops: [
     { id: "tr", label: "Transpose", sub: "time first", shape: [4, 128, 192], names: ["T", "B", "D"],
-      text: "Time goes first. Each of the 4 time steps is tested on its own, over the 128 samples of the batch.",
-      code: "proj = emb.transpose(0, 1)" },
+      text: "emb is (B, T, D). After the transpose it is (T, B, D) = (4, 128, 192). " +
+        "SIGReg tests each frame position on its own: the 128 embeddings of frame 0 are one sample set, " +
+        "the 128 embeddings of frame 1 are another, and so on. " +
+        "Later, the means over samples are over dimension −3, which is now the batch axis.",
+      code: "proj = emb.transpose(0, 1)   # (B, T, D) -> (T, B, D)" },
     { id: "proj", label: "Projections", sub: "x @ A, A: (192, 1024)", shape: [4, 128, 1024], names: ["T", "B", "M"],
-      text: "A is a new random (192, 1024) matrix. Each column has length 1. Each sample becomes 1024 numbers: its position along each direction.",
-      code: "A = torch.randn(192, 1024); A /= A.norm(dim=0)\nx = proj @ A" },
+      text: "A new random matrix A (192, 1024) is made <b>on every call</b>. It is not a parameter and gets no gradient. " +
+        "Each column is divided by its length, so each column is a random <b>unit direction</b> in the 192-D space.<br><br>" +
+        "x = proj @ A gives, for each embedding, its position along each of the 1024 directions. " +
+        "Now there are 4 × 1024 sets of 128 numbers, and each set should look like N(0, 1). " +
+        "Because the directions change at every step, training checks many more than 1024 directions over time, at a fixed cost per step.",
+      code: "A = torch.randn(192, 1024)\nA = A / A.norm(p=2, dim=0)   # unit columns\nx = proj @ A                 # (4, 128, 192) @ (192, 1024)" },
     { id: "knots", label: "× knots t", sub: "17 points in [0, 3]", shape: [4, 128, 1024, 17], names: ["T", "B", "M", "K"],
-      text: "Multiply each number by 17 values of t from 0 to 3.",
-      code: "x_t = x.unsqueeze(-1) * t   # t = linspace(0, 3, 17)" },
-    { id: "ecf", label: "Empirical CF", sub: "mean over B of cos, sin", shape: [4, 1024, 17], names: ["T", "M", "K"], mult: 2, tlabel: "cos mean, sin mean",
-      text: "Mean over the 128 samples of cos(t·x) and sin(t·x). This is the empirical characteristic function (real and imaginary part).",
-      code: "re = x_t.cos().mean(-3)\nim = x_t.sin().mean(-3)" },
-    { id: "err", label: "Compare to N(0, 1)", sub: "(re − e^(−t²/2))² + im²", shape: [4, 1024, 17], mult: 0, tlabel: "err",
-      text: "For a standard Gaussian the characteristic function is e^(−t²/2) and the imaginary part is 0. err measures the distance.",
-      code: "err = (re - phi).square() + im.square()   # phi = exp(-t²/2)" },
-    { id: "int", label: "Integrate over t", sub: "weights · window · B", shape: [4, 1024], names: ["T", "M"],
-      text: "Weighted sum over the 17 knots (trapezoid weights × e^(−t²/2)), then × 128. This is the <b>Epps–Pulley</b> test statistic. Large value = not Gaussian.",
-      code: "statistic = (err @ weights) * 128" },
+      text: "The 1-D test compares <b>characteristic functions</b>, which use e^(i·t·x) for many values of t. " +
+        "SIGReg uses 17 evenly spaced values t = 0, 0.1875, …, 3 (the <b>knots</b>), and multiplies each number x by every t.<br><br>" +
+        "Only t ≥ 0 is needed, because the error is the same at t and −t. Values above t = 3 are not used: " +
+        "there e^(−t²/2) < 0.012, so they add little. " +
+        "This is the largest tensor in SIGReg: 4 × 128 × 1024 × 17 ≈ 8.9 million values.",
+      code: "t = torch.linspace(0, 3, 17)    # knots\nx_t = x.unsqueeze(-1) * t       # (4, 128, 1024, 1) * (17,)" },
+    { id: "ecf", label: "Empirical CF", sub: "mean over B of cos, sin", shape: [4, 1024, 17], names: ["T", "M", "K"], mult: 2, tlabel: "re, im",
+      text: "The characteristic function of a distribution is φ(t) = E[e^(i·t·x)] = E[cos(t·x)] + i · E[sin(t·x)]. " +
+        "It describes the distribution completely: two distributions are equal if and only if their φ are equal.<br><br>" +
+        "The <b>empirical</b> version replaces E with the mean over the 128 samples. So for each frame, direction and knot there are 2 numbers: " +
+        "re = mean of cos(t·x) and im = mean of sin(t·x). The batch axis is gone.<br><br>" +
+        "This checks the whole shape of the distribution, not only its mean and variance. " +
+        "Also, cos and sin are between −1 and 1, so a few outliers cannot make the loss very large.",
+      code: "re = x_t.cos().mean(-3)   # mean over B -> (4, 1024, 17)\nim = x_t.sin().mean(-3)" },
+    { id: "err", label: "Compare to N(0, 1)", sub: "(re − e^(−t²/2))² + im²", shape: [4, 1024, 17], mult: 0, tlabel: "err", plot: "ecf",
+      text: "For N(0, 1) the characteristic function is φ(t) = e^(−t²/2), and its imaginary part is 0 (the distribution is symmetric). " +
+        "err(t) is the squared distance between the empirical and the target value: (re − e^(−t²/2))² + im².<br><br>" +
+        "What bad cases look like (see the graph):<br>" +
+        "• <b>Collapse</b>: if all x are 0, re = 1 for every t, far above the target.<br>" +
+        "• <b>Too spread</b> (std > 1): re falls faster than the target.<br>" +
+        "• <b>Too narrow</b> (std < 1): re falls slower.<br>" +
+        "• <b>Mean not 0, or skewed</b>: im is not 0.",
+      code: "phi = torch.exp(-t.square() / 2)          # target, (17,)\nerr = (re - phi).square() + im.square()   # (4, 1024, 17)" },
+    { id: "int", label: "Integrate over t", sub: "weights · window · B", shape: [4, 1024], names: ["T", "M"], plot: "weights", tlabel: "statistic",
+      text: "The <b>Epps–Pulley</b> statistic is n · ∫ err(t) · e^(−t²/2) dt. The weight e^(−t²/2) makes small t count more: " +
+        "small t measure the overall shape, large t measure fine details that are noisy with only 128 samples.<br><br>" +
+        "The integral over t from −3 to 3 is computed with the trapezoid rule on the knots. err is the same at t and −t, " +
+        "so the code uses only 0…3 and doubles the weights: 2·dt inside and dt at the two ends, with dt = 3/16 (see the graph).<br><br>" +
+        "The result is multiplied by n = 128. For a true Gaussian the statistic then stays about the same for any batch size; " +
+        "for a non-Gaussian it grows with n. Result: one test value per frame and direction.",
+      code: "w = trapezoid * torch.exp(-t.square() / 2)   # trapezoid = [dt, 2dt, …, 2dt, dt]\nstatistic = (err @ w) * 128                   # (4, 1024, 17) @ (17,) -> (4, 1024)" },
     { id: "mean", label: "Mean", sub: "over T and directions", shape: [], names: [], kind: "loss", tlabel: "sigreg_loss",
-      text: "Average over the 4 time steps and 1024 directions. One number.",
-      code: "sigreg_loss = statistic.mean()" },
+      text: "The mean over the 4 frames and the 1024 directions gives one number, <b>sigreg_loss</b>. " +
+        "In the total loss it gets the weight λ = 0.09.<br><br>" +
+        "Every step can be differentiated: the gradient goes back through cos and sin and through x = proj @ A to the encoder (A gets no gradient). " +
+        "So SIGReg makes the encoder spread its embeddings like N(0, I), while the prediction loss makes them predictable.",
+      code: "sigreg_loss = statistic.mean()   # () scalar\nloss = pred_loss + 0.09 * sigreg_loss" },
   ],
 });
 
@@ -1061,6 +1125,7 @@ function renderPanel(scene, i, step, st) {
   const n = scene.steps.length;
   let html = `<div class="p-step">Step ${i + 1} of ${n} · ${scene.title}</div><h2>${step.title}</h2>`;
   if (step.text) html += `<p class="p-text">${step.text}</p>`;
+  if (step.plot) html += plotSvg(PLOTS[step.plot]);
   if (step.op) html += `<pre class="p-op">${escapeHtml(step.op)}</pre>`;
   const rows = [];
   for (const id in st) {
@@ -1096,6 +1161,98 @@ function renderPanel(scene, i, step, st) {
   $("panel").innerHTML = html;
   const zb = $("p-zoom");
   if (zb) zb.addEventListener("click", () => zoomIn(z));
+}
+
+/* Small function graphs for activation steps. */
+/* erf, Abramowitz & Stegun 7.1.26 (error < 1.5e-7) */
+function erf(x) {
+  const s = Math.sign(x), a = Math.abs(x), t = 1 / (1 + 0.3275911 * a);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a);
+  return s * y;
+}
+const silu = (x) => x / (1 + Math.exp(-x));
+const gelu = (x) => 0.5 * x * (1 + erf(x / Math.SQRT2));
+const PHI = (t) => Math.exp(-t * t / 2);
+const KNOTS = Array.from({ length: 17 }, (_, k) => 3 * k / 16);
+const ACT_X = { x: [-5, 5], y: [-1, 5], xt: 2, yt: 1, gx: 1, gy: 1, ref: true };
+const PLOTS = {
+  silu: Object.assign({}, ACT_X, {
+    caption: "SiLU(x) = x · σ(x)",
+    series: [{ f: silu, color: "var(--k-act)" }],
+    mark: { x: -1.278, y: -0.278, label: "min ≈ −0.28", color: "var(--k-act)" },
+  }),
+  gelu: Object.assign({}, ACT_X, {
+    caption: "GELU(x) = x · Φ(x)",
+    series: [
+      { f: silu, color: "#b0b7c3", width: 1.6, dash: "5 3", label: "SiLU (for comparison)" },
+      { f: gelu, color: "var(--k-tok)", label: "GELU" },
+    ],
+    mark: { x: -0.752, y: -0.170, label: "min ≈ −0.17", color: "var(--k-tok)" },
+  }),
+  ecf: {
+    caption: "Real part of φ(t): target and 3 bad cases",
+    x: [0, 3], y: [0, 1.1], xt: 0.5, yt: 0.25, gx: 0.5, gy: 0.25,
+    series: [
+      { f: () => 1, color: "var(--k-loss)", width: 1.8, dash: "6 3", label: "collapsed: all x = 0" },
+      { f: (t) => Math.exp(-2 * t * t), color: "var(--k-act)", width: 1.8, dash: "2 3", label: "too spread: std 2" },
+      { f: (t) => Math.exp(-t * t / 8), color: "var(--k-tok)", width: 1.8, dash: "8 3 2 3", label: "too narrow: std 0.5" },
+      { f: PHI, color: "var(--k-emb)", label: "target N(0, 1): e^(−t²/2)" },
+    ],
+    points: { xs: KNOTS, f: PHI, color: "var(--k-emb)", label: "17 knots" },
+  },
+  weights: {
+    caption: "Weight of each knot: trapezoid × e^(−t²/2)",
+    x: [0, 3], y: [0, 0.4], xt: 0.5, yt: 0.1, gx: 0.5, gy: 0.1,
+    series: [{ f: (t) => 0.375 * PHI(t), color: "#b0b7c3", width: 1.4, dash: "4 3", label: "2·dt · e^(−t²/2)" }],
+    points: { xs: KNOTS, f: (t, k) => (k === 0 || k === 16 ? 0.1875 : 0.375) * PHI(t), stem: true, color: "var(--k-emb)", label: "weights (ends: half)" },
+  },
+};
+
+function fmt(v) { return Math.abs(v) < 1e-9 ? "0" : (+v.toFixed(2)).toString(); }
+
+function plotSvg(pl) {
+  const w = 320, h = 190, padL = 34, padR = 10, padT = 22, padB = 22;
+  const [x0, x1] = pl.x, [y0, y1] = pl.y;
+  const X = (x) => padL + (x - x0) / (x1 - x0) * (w - padL - padR);
+  const Y = (y) => padT + (y1 - y) / (y1 - y0) * (h - padT - padB);
+  const steps = (a, b, st) => { const r = []; for (let v = Math.ceil(a / st - 1e-9) * st; v <= b + 1e-9; v += st) r.push(v); return r; };
+  let grid = "", ticks = "";
+  steps(x0, x1, pl.gx).forEach((x) => { grid += `<line x1="${X(x)}" y1="${Y(y0)}" x2="${X(x)}" y2="${Y(y1)}" stroke="#eef0f3"/>`; });
+  steps(y0, y1, pl.gy).forEach((y) => { grid += `<line x1="${X(x0)}" y1="${Y(y)}" x2="${X(x1)}" y2="${Y(y)}" stroke="#eef0f3"/>`; });
+  steps(x0, x1, pl.xt).forEach((x) => { ticks += `<text x="${X(x)}" y="${h - 6}" text-anchor="middle">${fmt(x)}</text>`; });
+  steps(y0, y1, pl.yt).forEach((y) => { ticks += `<text x="${padL - 6}" y="${Y(y) + 3.5}" text-anchor="end">${fmt(y)}</text>`; });
+  let axes = "";
+  if (y0 <= 0 && y1 >= 0) axes += `<line x1="${X(x0)}" y1="${Y(0)}" x2="${X(x1)}" y2="${Y(0)}" stroke="#98a2b3"/>`;
+  if (x0 <= 0 && x1 >= 0) axes += `<line x1="${X(0)}" y1="${Y(y0)}" x2="${X(0)}" y2="${Y(y1)}" stroke="#98a2b3"/>`;
+  const ref = pl.ref ? `<line x1="${X(y0)}" y1="${Y(y0)}" x2="${X(y1)}" y2="${Y(y1)}" stroke="#98a2b3" stroke-dasharray="3 3"/>` +
+    `<text x="${X(3.6)}" y="${Y(4.3)}" text-anchor="end">y = x</text>` : "";
+  let curves = "";
+  for (const se of pl.series) {
+    let d = "";
+    for (let k = 0; k <= 200; k++) {
+      const x = x0 + (x1 - x0) * k / 200;
+      d += (k ? "L" : "M") + X(x).toFixed(1) + "," + Y(se.f(x)).toFixed(1);
+    }
+    curves += `<path d="${d}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2.4}"` + (se.dash ? ` stroke-dasharray="${se.dash}"` : "") + `/>`;
+  }
+  let pts = "";
+  if (pl.points) {
+    pl.points.xs.forEach((x, k) => {
+      const y = pl.points.f(x, k);
+      if (pl.points.stem) pts += `<line x1="${X(x)}" y1="${Y(0)}" x2="${X(x)}" y2="${Y(y)}" stroke="${pl.points.color}" stroke-width="2"/>`;
+      pts += `<circle cx="${X(x)}" cy="${Y(y)}" r="2.6" fill="${pl.points.color}"/>`;
+    });
+  }
+  const m = pl.mark ? `<circle cx="${X(pl.mark.x)}" cy="${Y(pl.mark.y)}" r="3.5" fill="${pl.mark.color}"/>` +
+    `<text x="${X(pl.mark.x) - 4}" y="${Y(pl.mark.y) + 15}" text-anchor="end">${pl.mark.label}</text>` : "";
+  const cap = `<text class="cap" x="${padL}" y="14">${pl.caption}</text>`;
+  const items = pl.series.filter((se) => se.label).map((se) =>
+    `<span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="${se.color}" stroke-width="${se.width || 2.4}"` +
+    (se.dash ? ` stroke-dasharray="${se.dash}"` : "") + `/></svg>${se.label}</span>`);
+  if (pl.points && pl.points.label) items.push(`<span><svg width="22" height="8"><circle cx="11" cy="4" r="2.6" fill="${pl.points.color}"/></svg>${pl.points.label}</span>`);
+  const legend = items.length > 1 || pl.points ? `<div class="p-legend">${items.join("")}</div>` : "";
+  return `<div class="p-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Graph: ${pl.caption}">` +
+    grid + axes + ref + curves + pts + m + ticks + cap + `</svg>${legend}</div>`;
 }
 
 function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
