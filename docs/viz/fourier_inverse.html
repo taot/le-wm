@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>傅里叶逆变换</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #1d2433;
+  --muted: #667085;
+  --line: #d0d5dd;
+  --line-soft: #e4e7ec;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+  --c-f: #0d9488;
+  --c-re: #2563eb;
+  --c-im: #d97706;
+  --c-tgt: #dc2626;
+  --c-err: #9333ea;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --card: #171b24; --ink: #e6e9ef; --muted: #98a2b3;
+    --line: #344054; --line-soft: #252b37; --accent: #60a5fa; --accent-soft: rgba(96, 165, 250, 0.16);
+    --c-f: #2dd4bf; --c-re: #60a5fa; --c-im: #fbbf24; --c-tgt: #f87171; --c-err: #c084fc;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --card: #171b24; --ink: #e6e9ef; --muted: #98a2b3;
+  --line: #344054; --line-soft: #252b37; --accent: #60a5fa; --accent-soft: rgba(96, 165, 250, 0.16);
+  --c-f: #2dd4bf; --c-re: #60a5fa; --c-im: #fbbf24; --c-tgt: #f87171; --c-err: #c084fc;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.65 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+button, select, input { font: inherit; color: inherit; }
+header { position: sticky; top: 0; z-index: 10; background: var(--card);
+  border-bottom: 1px solid var(--line-soft); padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.brand { font-weight: 700; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 500; }
+header nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; flex: 1 1 auto; }
+header nav a { color: var(--muted); text-decoration: none; }
+header nav a:hover { color: var(--accent); }
+select { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 4px 8px; }
+input[type=range] { accent-color: var(--accent); width: 150px; }
+.btn { border: 1px solid var(--line); background: var(--card); padding: 4px 11px;
+  border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+main { max-width: 1040px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+section.card { background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+section h2 { font-size: 18px; margin: 0 0 6px; }
+section h3 { font-size: 15px; margin: 18px 0 4px; }
+section p { margin: 6px 0; }
+section ul, section ol { padding-left: 20px; margin: 6px 0; }
+section li { margin: 3px 0; }
+.lead { color: var(--muted); }
+.formula { font-family: var(--mono); font-size: 14px; background: var(--accent-soft);
+  border-radius: 8px; padding: 8px 12px; margin: 8px 0; overflow-x: auto; white-space: nowrap; }
+.formula .lbl { color: var(--muted); font-family: inherit; margin-right: 10px; }
+code { font-family: var(--mono); font-size: 13px; background: var(--accent-soft); padding: 1px 4px; border-radius: 4px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 10px 0 6px; }
+.ctl { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13.5px; }
+.ctl label { color: var(--muted); }
+.ctl output { font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 3.6em; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: minmax(0, 1fr); } input[type=range] { width: 120px; } }
+.plot { min-width: 0; }
+.plot .cap { font-size: 12.5px; color: var(--muted); margin: 0 0 2px; }
+canvas { display: block; width: 100%; aspect-ratio: 16 / 9; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.legend i.dash { background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px) !important; }
+.readout { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13.5px; margin-top: 8px; }
+.readout b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+.try { border-left: 3px solid var(--accent); padding: 4px 12px; margin: 10px 0; font-size: 14px; }
+.try b { color: var(--accent); }
+.key { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 10px 14px; margin: 10px 0; }
+.k-f { color: var(--c-f); font-weight: 600; } .k-re { color: var(--c-re); font-weight: 600; }
+.k-im { color: var(--c-im); font-weight: 600; } .k-tgt { color: var(--c-tgt); font-weight: 600; }
+.k-err { color: var(--c-err); font-weight: 600; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">傅里叶变换 <span>· 为什么逆变换是唯一的</span></div>
+  <div class="ctl"><label for="sigSel">信号 f(x)</label>
+    <select id="sigSel">
+      <option value="bimodal">双峰</option>
+      <option value="gauss">N(0,1)</option>
+      <option value="shift">偏移 N(1,1)</option>
+      <option value="uniform">均匀（方波）</option>
+      <option value="laplace">Laplace（尖峰）</option>
+    </select>
+  </div>
+  <nav>
+    <a href="#s1">1 公式</a><a href="#s2">2 正变换</a><a href="#s3">3 逆变换</a>
+    <a href="#s4">4 为什么唯一</a><a href="#s5">5 注意</a><a href="#s6">6 和 SIGReg</a>
+  </nav>
+</header>
+
+<main>
+
+<section class="card" id="s1">
+  <h2>1. 两个公式</h2>
+  <p class="lead">正变换把 f 拆成很多个频率的波。逆变换把这些波加回去，得到原来的 f。</p>
+  <div class="formula"><span class="lbl">正变换</span>F(t) = ∫ f(x) · e<sup>itx</sup> dx</div>
+  <div class="formula"><span class="lbl">逆变换</span>f(x) = (1/2π) ∫ F(t) · e<sup>−itx</sup> dt</div>
+  <ul>
+    <li><b>t 是频率。</b> F(t) 是一个复数。它的大小说明"f 中频率 t 的成分有多少"，它的角度说明这个波的相位（位置）。</li>
+    <li>这里使用和特征函数一样的符号（e<sup>+itx</sup>）。如果 f 是概率密度，F 就是特征函数 φ。</li>
+    <li>f 是实数时，F(−t) 是 F(t) 的共轭。所以 t &lt; 0 的部分没有新的信息，图中只画 t ≥ 0。</li>
+  </ul>
+  <p>页面顶部的「信号 f(x)」下拉框控制第 2、3、4 节中所有的图。</p>
+</section>
+
+<section class="card" id="s2">
+  <h2>2. 正变换：用波去"探测" f</h2>
+  <p>e<sup>itx</sup> = cos(tx) + i·sin(tx)。所以对每一个 t：</p>
+  <ul>
+    <li>把 f(x) 乘上 cos(tx)，求面积 → <span class="k-re">Re F(t)</span>。</li>
+    <li>把 f(x) 乘上 sin(tx)，求面积 → <span class="k-im">Im F(t)</span>。</li>
+  </ul>
+  <p>如果 f 的形状和波的"节奏"一致，乘积的正面积和负面积不会抵消，结果大。如果不一致，正负互相抵消，结果接近 0。</p>
+  <div class="row">
+    <div class="ctl"><label for="fwdT">t</label><input id="fwdT" type="range" min="0" max="12" step="0.01" value="1.5"><output id="fwdTOut"></output></div>
+    <div class="ctl"><button class="btn on" id="partCos">cos → 实部</button><button class="btn" id="partSin">sin → 虚部</button></div>
+  </div>
+  <div class="grid2">
+    <div class="plot"><p class="cap">f(x) 和探测波</p><canvas id="fwdSig"></canvas>
+      <div class="legend"><span><i style="background:var(--c-f)"></i>f(x)</span><span style="color:var(--muted)"><i class="dash"></i>探测波（缩放到 f 的高度）</span></div></div>
+    <div class="plot"><p class="cap">乘积 f(x)·cos(tx)。面积（正 − 负）= F(t) 的一个分量</p><canvas id="fwdProd"></canvas>
+      <div class="legend"><span><i style="background:var(--c-re)"></i>正面积</span><span><i style="background:var(--c-im)"></i>负面积</span></div></div>
+  </div>
+  <div class="plot" style="margin-top:10px"><p class="cap">频谱 F(t)。圆点 = 当前 t 的面积</p><canvas id="fwdSpec" style="aspect-ratio: 16 / 5"></canvas>
+    <div class="legend"><span><i style="background:var(--c-re)"></i>Re F(t)</span><span><i style="background:var(--c-im)"></i>Im F(t)</span></div></div>
+  <div class="readout"><span>面积 = <b id="fwdArea"></b></span><span>公式值 = <b id="fwdExact"></b></span></div>
+  <div class="try">
+    <b>试一试：</b>N(0,1) 和双峰是对称的，所以 sin 的面积一直是 0。偏移 N(1,1) 不对称，Im ≠ 0。
+    均匀分布有尖的边缘，F 下降很慢，而且一直振荡（sinc 函数）。双峰的 Re F 在 t ≈ 1.75 到 5.2 之间是负的。把 t 设为 π/0.9 ≈ 3.49：cos(tx) 在两个峰的位置（x = ±0.9）刚好都是波谷（−1），波峰（x = 0）落在两个峰之间的空隙中，所以乘积几乎全是负面积。（因为高斯包络，Re F 最负的点稍微提前，在 t ≈ 2.9。）
+  </div>
+</section>
+
+<section class="card" id="s3">
+  <h2>3. 逆变换：把波一个一个加回去</h2>
+  <p>逆变换的意思是：每个频率 t 的波 e<sup>−itx</sup>，按 F(t) 的大小和相位放好，然后全部加起来。只加 0 到 T 之间的频率，得到一个近似：</p>
+  <div class="formula">f<sub>T</sub>(x) = (1/π) ∫<sub>0</sub><sup>T</sup> Re[ F(t) · e<sup>−itx</sup> ] dt</div>
+  <div class="row">
+    <div class="ctl"><label for="invT">截止频率 T</label><input id="invT" type="range" min="0" max="30" step="0.05" value="2"><output id="invTOut"></output></div>
+    <button class="btn" id="invPlay">▶ 从 0 开始加</button>
+  </div>
+  <div class="grid2">
+    <div class="plot"><p class="cap">重建结果</p><canvas id="invRec"></canvas>
+      <div class="legend"><span style="color:var(--c-tgt)"><i class="dash"></i>原来的 f</span><span><i style="background:var(--c-f)"></i>f<sub>T</sub>（只用 t ≤ T）</span></div></div>
+    <div class="plot"><p class="cap">已经使用的频谱（阴影部分）</p><canvas id="invSpec"></canvas>
+      <div class="legend"><span><i style="background:var(--c-re)"></i>Re F</span><span><i style="background:var(--c-im)"></i>Im F</span></div></div>
+  </div>
+  <div class="readout"><span>相对误差 ∫(f − f<sub>T</sub>)² / ∫f² = <b id="invErr"></b></span></div>
+  <div class="try">
+    <b>试一试：</b>T 很小时，只有低频，结果是一个光滑的"团"，但它的位置和宽度已经差不多正确。T 变大，细节一个一个出现。
+    换成「均匀（方波）」：边缘附近一直有约 9% 的过冲（Gibbs 现象）。T 变大时，过冲变窄，但高度不变。误差还是趋向 0，因为过冲的面积越来越小。
+  </div>
+</section>
+
+<section class="card" id="s4">
+  <h2>4. 为什么逆变换是唯一的</h2>
+  <p>"唯一"的意思是：如果你知道<b>所有</b> t 的 F(t)，那么 f 只有一种可能。换一种说法：<b>没有两个不同的函数有相同的 F。</b></p>
+
+  <h3>第 1 步：把问题变简单</h3>
+  <p>傅里叶变换是线性的：(f − g) 的变换 = F<sub>f</sub> − F<sub>g</sub>。所以，如果 f 和 g 的变换相同，那么差 d = f − g 的变换在每个 t 都是 0。</p>
+  <div class="key">所以只需要证明一件事：<b>变换处处为 0 的函数，只有 0 函数。</b>也就是说：不存在一个不是 0、但所有的波都"看不见"的函数。</div>
+  <p>下面用三个角度说明为什么这样的"隐形函数"不存在。</p>
+
+  <h3>第 2 步：不同频率的波互相"垂直"</h3>
+  <p>把两个波 cos(sx) 和 cos(tx) 乘起来，在一个长的区间 [−L, L] 上求平均：</p>
+  <ul>
+    <li>s ≠ t：乘积正负交替，平均值趋向 0。这两个波"垂直"（正交）。</li>
+    <li>s = t：乘积是 cos²，一直 ≥ 0，平均值不是 0。</li>
+  </ul>
+  <div class="row">
+    <div class="ctl"><label for="orS">s</label><input id="orS" type="range" min="0.5" max="6" step="0.01" value="2.3"><output id="orSOut"></output></div>
+    <div class="ctl"><label for="orT">t</label><input id="orT" type="range" min="0.5" max="6" step="0.01" value="2"><output id="orTOut"></output></div>
+    <div class="ctl"><label for="orL">区间 L</label><input id="orL" type="range" min="2" max="40" step="0.5" value="10"><output id="orLOut"></output></div>
+  </div>
+  <div class="grid2">
+    <div class="plot"><p class="cap">乘积 cos(sx)·cos(tx)，x ∈ [−L, L]</p><canvas id="orProd"></canvas>
+      <div class="legend"><span><i style="background:var(--c-re)"></i>正面积</span><span><i style="background:var(--c-im)"></i>负面积</span></div></div>
+    <div class="plot"><p class="cap">归一化平均值（s = t 时 ≈ 1），作为 s 的函数</p><canvas id="orCurve"></canvas>
+      <div class="legend"><span><i style="background:var(--c-err)"></i>2 × 平均值</span><span><i style="background:var(--ink)"></i>当前 s</span></div></div>
+  </div>
+  <div class="readout"><span>2 × 平均值 = <b id="orVal"></b></span></div>
+  <p><b>怎样读右图：</b>它显示两个波 cos(sx) 和 cos(tx) 有多"像"，作为 s 的函数。</p>
+  <ul>
+    <li><b>横轴</b>是 s；<b>虚线</b>是固定的 t；<b>黑点</b>是当前的 s（左图使用的 s）。</li>
+    <li><b>纵轴</b>是乘积在 [−L, L] 上的平均值 × 2。乘 2 是为了让 s = t 时的值约等于 1。公式是
+      <span style="white-space:nowrap"><code>sinc((s − t)·L) + sinc((s + t)·L)</code></span>，sinc(u) = sin(u)/u。s ≥ 0.5 时第二项很小，所以形状主要来自第一项。</li>
+    <li><b>主峰在 s = t</b>，高度约为 1：频率相同时，乘积是 cos²，一直 ≥ 0。</li>
+    <li><b>旁瓣</b>：s ≠ t 时，值在 0 附近振荡，并以 1/(|s − t|·L) 的速度变小。<b>零点</b>在 s = t ± kπ/L，主峰的宽度是 2π/L。</li>
+  </ul>
+  <p><b>为什么 s ≠ t 时值不一定是 0？</b>乘积可以拆成两个波：</p>
+  <div class="formula">cos(sx)·cos(tx) = ½·cos((s − t)x) + ½·cos((s + t)x)</div>
+  <p>快的部分 cos((s + t)x) 在区间中振荡很多次，正负几乎完全抵消。慢的部分 cos((s − t)x) 是一个"拍"，也就是左图中的包络。如果 s 和 t 很接近，这个拍在 [−L, L] 中还没有完成一个周期，所以正负不能完全抵消。例如 t = 3.5、s = 3.05、L = 10 时，(s − t)·L ≈ −4.5：包络在中间是正的，在两边是负的，负的稍多，所以平均值 ≈ −0.22。这刚好是 sinc 最深的旁瓣（u ≈ 4.49，值 −0.217）。</p>
+  <p>所以，"不同频率的波正交"只在 L → ∞ 时才完全成立。L 有限时，两个很接近的频率不能完全分开。</p>
+  <p><b>L 变大时：</b>旁瓣按 1/L 变小，主峰按 1/L 变窄，高度保持为 1。极限是：s = t 时是 1，其他位置都是 0。如果不求平均，只求积分（再乘 2L），峰的高度按 2L 增大，宽度按 1/L 变小，面积保持为 2π。这就是 δ 函数：</p>
+  <div class="formula">∫ e<sup>i(t−s)x</sup> dx = 2π · δ(t − s)</div>
+  <p><b>和唯一性的关系：</b>这就是逆变换"选出"一个频率的方法。把信号乘上频率 s 的波再积分，只有频率等于 s 的成分会保留，其他成分都互相抵消。每个频率都可以这样干净地分开，所以 f 中每个频率的成分都是确定的，f 也就确定了。</p>
+  <p><b>频率分辨率：</b>主峰的宽度 2π/L 说明，只看长度 2L 的区间时，相差小于约 π/L 的两个频率分不开。这又是不确定性原理：x 中看得越宽，t 中分得越细。</p>
+  <div class="try">
+    <b>试一试：</b>设 t = 3.5、L = 10，把 s 设为 t + π/L ≈ 3.81：黑点在 0 上（第一个零点）。
+    然后把 s 设为 3.05：黑点在最深的旁瓣上。保持 s，把 L 加大到 40：黑点几乎回到 0，主峰变得很窄。
+  </div>
+  <p><b>直观的类比：</b>在三维空间里，如果你知道一个向量在 x、y、z 三个互相垂直的方向上的投影，这个向量就完全确定了。F(t) 就是 f 在"频率 t 这个方向"上的投影。不同的 t 互相垂直，而且这些方向足够多，可以组成任何函数（这叫"完备"）。所以所有投影都知道时，f 就确定了。</p>
+  <p><b>有限维的版本：</b>如果 f 只有 N 个点，傅里叶变换就是一个 N × N 的矩阵（DFT 矩阵）。它的各列互相正交，所以矩阵可逆，逆矩阵就是逆变换。N 个系数唯一确定 N 个值。连续的傅里叶变换是 N → ∞ 的版本。</p>
+
+  <h3>第 3 步：能量守恒——任何改变都会留下痕迹</h3>
+  <p><b>我们要证明什么：</b>如果 d 不是 0，那么至少有一个 t 使 D(t) ≠ 0。也就是说，不存在一个"所有频率都看不到"的改变。</p>
+
+  <p><b>(a) 先看三维空间：勾股定理。</b>一个向量 v 在三个互相垂直的方向上的坐标是 c<sub>1</sub>、c<sub>2</sub>、c<sub>3</sub>。它的长度满足：</p>
+  <div class="formula">|v|² = c<sub>1</sub>² + c<sub>2</sub>² + c<sub>3</sub>²</div>
+  <p>这个公式有两个重要的性质：</p>
+  <ul>
+    <li><b>它只对互相垂直的方向成立。</b>如果方向不垂直，还会有交叉项 2c<sub>1</sub>c<sub>2</sub>·cos(夹角)。</li>
+    <li><b>右边每一项都 ≥ 0，不能互相抵消。</b>所以如果所有坐标都是 0，长度就是 0，向量就是 0。只要向量不是 0，至少有一个坐标不是 0。</li>
+  </ul>
+
+  <p><b>(b) 函数也一样。</b>把函数看成一个"有无穷多个分量的向量"。它的"长度的平方"叫做<b>能量</b>：∫ d(x)² dx。逆变换说，d 是很多个波的和：</p>
+  <div class="formula">d(x) = (1/2π) ∫ D(t) · e<sup>−itx</sup> dt</div>
+  <p>D(t) 就是 d 在"频率 t 这个方向"上的坐标。现在计算能量 ∫|d|² dx：这是"波的和"乘以"波的和"，展开以后有很多交叉项。依据第 2 步，<b>不同频率的两个波相乘再积分，结果是 0</b>，所以所有交叉项都消失，只剩下每个频率和自己的乘积。结果是：</p>
+  <div class="formula">∫ |d(x)|² dx = (1/2π) ∫ |D(t)|² dt</div>
+  <p>这就是 Plancherel 定理。它是无穷维的勾股定理："总能量 = 每个频率的能量之和"，没有交叉项。傅里叶变换就像把坐标轴<b>旋转</b>到一组新的垂直方向（波），旋转不改变长度。</p>
+
+  <p><b>(c) 结论。</b>右边的 |D(t)|² 每一点都 ≥ 0，不能互相抵消。所以：</p>
+  <ul>
+    <li>如果 D(t) 处处为 0，右边是 0，所以 d 的能量是 0，所以 d = 0。这就是第 1 步需要的结论。</li>
+    <li>反过来说，d 有多少能量，频谱中就正好有多少能量。能量可以<b>移到</b>不同的频率，但是不能<b>消失</b>。</li>
+  </ul>
+  <div class="key">为什么要用能量（平方），而不直接用面积 ∫d dx？因为面积可以正负抵消：一个有正有负的改变，面积可以是 0（这时 D(0) = ∫d dx = 0）。而能量是平方的和，只要 d 在某个地方不是 0，能量就一定大于 0。</div>
+
+  <p><b>(d) 下面的演示。</b>给 f 加一个小的改变 d，得到 g = f + d。d 是一个"波包"：</p>
+  <div class="formula">d(x) = ε · e<sup>−(x−a)²/(2w²)</sup> · cos(ωx)</div>
+  <p>包络 e<sup>−(x−a)²/(2w²)</sup> 决定它在哪里（a）、有多宽（w）；cos(ωx) 决定它振荡得多快（ω）。</p>
+  <div class="row">
+    <div class="ctl"><label for="pbA">位置 a</label><input id="pbA" type="range" min="-4" max="4" step="0.05" value="1.5"><output id="pbAOut"></output></div>
+    <div class="ctl"><label for="pbW">宽度 w</label><input id="pbW" type="range" min="0.2" max="2" step="0.01" value="0.4"><output id="pbWOut"></output></div>
+    <div class="ctl"><label for="pbE">幅度 ε</label><input id="pbE" type="range" min="-0.3" max="0.3" step="0.005" value="0.08"><output id="pbEOut"></output></div>
+    <div class="ctl"><label for="pbO">振荡频率 ω</label><input id="pbO" type="range" min="0" max="10" step="0.05" value="0"><output id="pbOOut"></output></div>
+  </div>
+  <div class="grid2">
+    <div class="plot"><p class="cap">f 和改变后的 g = f + d</p><canvas id="pbSig"></canvas>
+      <div class="legend"><span style="color:var(--c-tgt)"><i class="dash"></i>f</span><span><i style="background:var(--c-f)"></i>g = f + d</span></div></div>
+    <div class="plot"><p class="cap">差的频谱 |D(t)|²。阴影 = SIGReg 使用的 t ∈ [0, 3]</p><canvas id="pbSpec"></canvas>
+      <div class="legend"><span><i style="background:var(--c-err)"></i>|D(t)|²</span></div></div>
+  </div>
+  <div class="readout">
+    <span>x 空间能量 ∫d² dx = <b id="pbEx"></b></span>
+    <span>频域能量 (1/π)∫<sub>0</sub><sup>∞</sup>|D|² dt = <b id="pbEt"></b></span>
+    <span>其中在 t ∈ [0, 3] 的比例 = <b id="pbFrac"></b></span>
+  </div>
+  <p><b>怎样读右图：</b>紫色曲线 |D(t)|² 说明 d 的能量分布在哪些频率上。紫色面积 × (1/π) 就是频域能量，它一直等于左边的 x 空间能量。上面的两个读数用不同的方法计算（第一个用公式，第二个在频谱上数值积分），结果一直相等。</p>
+  <ul>
+    <li><b>峰的位置 ≈ ω。</b>cos(ωx) = ½(e<sup>iωx</sup> + e<sup>−iωx</sup>)，乘上它会把包络的频谱平移到 t = ±ω（调制定理）。ω = 0 时，峰在 t = 0。</li>
+    <li><b>峰的宽度 ≈ 1/w。</b>包络越窄，频谱越宽（不确定性原理）。</li>
+    <li><b>t = 0 处的值：</b>D(0) = ∫ d(x) dx，就是这个改变的净面积。有正有负的波包，净面积很小，所以 D(0) 很小。但是能量不会因此变小，它只是移到了别的频率。</li>
+    <li><b>位置 a</b> 只改变 D(t) 的相位，不改变 |D(t)|²。只有在 t ≈ 0 附近，+ω 和 −ω 两个峰的尾巴重叠，a 才会通过干涉稍微改变曲线。</li>
+  </ul>
+  <div class="try">
+    <b>试一试：</b>
+    <ol style="margin:4px 0">
+      <li>保持 ω = 0，改变 w：d 是一个光滑的鼓包。w 变小，鼓包变窄，频谱变宽。两个能量值一直相等。</li>
+      <li>把 ω 慢慢加大：峰向右移动到 t ≈ ω。左图中的鼓包变成一个快速振荡的波包，但它的能量完全没有减少，只是移到了高频。</li>
+      <li>设 ω = 8、w = 0.3：能量几乎全部在 t &gt; 3，「在 t ∈ [0, 3] 的比例」很小。</li>
+    </ol>
+  </div>
+  <div class="key"><b>"不隐形"和"看得到"是两件事。</b>第 3 个试验中，改变没有隐形，它的全部能量都在频谱中。但是如果你只看 t ∈ [0, 3]（像 SIGReg 一样），你几乎看不到它。所以唯一性需要知道<b>所有</b> t 的 F(t)（见第 5 节）。</div>
+
+  <h3>第 4 步：一个可以直接计算的还原方法（高斯模糊）</h3>
+  <p>还有一个更具体的证明，它也是概率论中证明"特征函数唯一确定分布"的方法（Lévy 反演公式）：</p>
+  <ol>
+    <li>把 F(t) 乘上一个窗口 e<sup>−σ²t²/2</sup>，再做逆变换。</li>
+    <li>得到的结果正好是 f 被宽度为 σ 的高斯模糊以后的样子：f ∗ N(0, σ²)。</li>
+    <li>这个计算<b>只用到 F</b>。所以如果 f 和 g 的 F 相同，它们在每个 σ 的模糊结果也相同。</li>
+    <li>σ → 0 时，模糊消失，结果就是 f 本身。所以 f = g。</li>
+  </ol>
+  <div class="row">
+    <div class="ctl"><label for="blS">模糊宽度 σ</label><input id="blS" type="range" min="0.1" max="2" step="0.01" value="0.5"><output id="blSOut"></output></div>
+  </div>
+  <div class="grid2">
+    <div class="plot"><p class="cap">两种方法得到同一个结果</p><canvas id="blRec"></canvas>
+      <div class="legend"><span style="color:var(--muted)"><i style="background:var(--muted)"></i>原来的 f</span><span><i style="background:var(--c-f)"></i>逆变换(F · 窗口)</span><span style="color:var(--c-tgt)"><i class="dash"></i>直接模糊 f ∗ N(0, σ²)</span></div></div>
+    <div class="plot"><p class="cap">频域：窗口是一个低通滤波器</p><canvas id="blSpec"></canvas>
+      <div class="legend"><span style="color:var(--muted)"><i style="background:var(--muted)"></i>Re F</span><span><i style="background:var(--c-re)"></i>Re F · 窗口</span><span style="color:var(--muted)"><i class="dash"></i>窗口 e<sup>−σ²t²/2</sup></span></div></div>
+  </div>
+  <div class="readout"><span>两条曲线的最大差 = <b id="blDiff"></b></span></div>
+  <p>为什么要加窗口，而不直接用逆变换公式？因为对有些分布，F(t) 下降很慢（例如均匀分布的 F 像 1/t），对一个点质量（Dirac δ），|F(t)| 一直是 1，根本不下降。这时 ∫F(t)e<sup>−itx</sup>dt 不收敛。乘上窗口以后，积分一定收敛，然后再让 σ → 0。</p>
+  <div class="try"><b>和 SIGReg 的关系：</b>SIGReg 计算 ∫ |φ̂(t) − φ(t)|² · e<sup>−t²/2</sup> dt。因为 |D|² · e<sup>−t²/2</sup> = |D · e<sup>−t²/4</sup>|²，这等于先把两个分布的差用宽度 σ = 1/√2 的高斯模糊，再用第 3 步的能量守恒求它的能量。所以 SIGReg 只比较"模糊以后"的分布：比模糊宽度更细的差异，它几乎看不到。</div>
+</section>
+
+<section class="card" id="s5">
+  <h2>5. "唯一"的准确意思和两个注意点</h2>
+  <h3>几乎处处唯一</h3>
+  <p>如果只改变 f 在一个点（或者几个点）的值，积分不会改变，所以 F 也不会改变。所以准确地说：F 唯一确定 f，但是不区分这种"不影响任何积分"的差别。对概率分布来说，这正好就是"分布相同"。</p>
+  <h3>必须知道所有的 t</h3>
+  <p>上面的所有论证都需要知道<b>每一个</b> t 的 F(t)。如果只知道一部分 t，就<b>不唯一</b>了：</p>
+  <ul>
+    <li><b>只知道 t ∈ [0, T]：</b>频率高于 T 的部分看不到。第 4 节第 3 步中 ω = 8 的波包就是一个例子：它在 [0, 3] 中几乎没有能量。</li>
+    <li><b>只知道等间距的点 t<sub>k</sub> = k·Δ：</b>如果 d(x) = h(x) − h(x − 2π/Δ)，那么 D(t<sub>k</sub>) = H(t<sub>k</sub>)·(1 − e<sup>i·2πk</sup>) = 0。也就是说，把一部分质量平移 2π/Δ，在这些点上看不出来（混叠）。SIGReg 中 Δ = 3/16，所以 2π/Δ ≈ 33.5。</li>
+  </ul>
+  <p>所以，SIGReg 用 17 个 knot 时，"所有 knot 上都匹配"只是一个<b>必要条件</b>，不能完全保证分布是 N(0,1)。但是它对最重要的低阶错误（均值、方差、坍缩）非常敏感，而且训练中使用很多个随机方向，所以在实际中效果很好。</p>
+</section>
+
+<section class="card" id="s6">
+  <h2>6. 和 SIGReg 的关系</h2>
+  <ul>
+    <li>特征函数 φ(t) 就是概率密度的傅里叶变换（第 1 节）。</li>
+    <li>因为逆变换是唯一的，所以"对所有 t，φ̂(t) = e<sup>−t²/2</sup>" ⇔ "分布就是 N(0,1)"。这就是 SIGReg 可以用特征函数检验高斯性的原因。</li>
+    <li>SIGReg 的窗口 e<sup>−t²/2</sup> 等于"先把差用宽度 1/√2 的高斯模糊，再求能量"（第 4 节第 4 步）。依据第 3 步的能量守恒，这相当于在 x 空间中用宽度为 1 的高斯核 exp(−(x−y)²/2) 比较两个分布（MMD，Epps–Pulley 检验）。</li>
+    <li>SIGReg 只用 t ∈ [0, 3] 中的 17 个点，所以它是一个近似的检验（第 5 节）。</li>
+  </ul>
+  <p>单个一维投影的 SIGReg 计算过程见 <a href="sigreg_cf.html">sigreg_cf.html</a>。</p>
+</section>
+
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // ---- signals with exact Fourier transforms F(t) = ∫ f(x) e^{itx} dx ----
+  const SQ3 = Math.sqrt(3), LB = Math.SQRT1_2, BM = 0.9, BS = 0.436;
+  const npdf = (x, m, s) => Math.exp(-0.5 * ((x - m) / s) ** 2) / (s * Math.sqrt(2 * Math.PI));
+  const SIGNALS = {
+    gauss:   { f: x => npdf(x, 0, 1), F: t => [Math.exp(-t * t / 2), 0] },
+    shift:   { f: x => npdf(x, 1, 1), F: t => { const e = Math.exp(-t * t / 2); return [e * Math.cos(t), e * Math.sin(t)]; } },
+    bimodal: { f: x => 0.5 * npdf(x, -BM, BS) + 0.5 * npdf(x, BM, BS), F: t => [Math.cos(BM * t) * Math.exp(-BS * BS * t * t / 2), 0] },
+    uniform: { f: x => (Math.abs(x) <= SQ3 ? 1 / (2 * SQ3) : 0), F: t => [t === 0 ? 1 : Math.sin(SQ3 * t) / (SQ3 * t), 0] },
+    laplace: { f: x => Math.exp(-Math.abs(x) / LB) / (2 * LB), F: t => [1 / (1 + LB * LB * t * t), 0] },
+  };
+
+  // ---- grids ----
+  const range = (a, b, d) => Array.from({ length: Math.round((b - a) / d) + 1 }, (_, i) => a + i * d);
+  const DXD = 0.02, XD = range(-5, 5, DXD);        // display grid
+  const DXG = 0.01, XG = range(-10, 10, DXG);      // fine grid for integrals in x
+  const DTG = 0.02, TG = range(0, 40, DTG);        // frequency grid
+  let sig, FD, FG, FR, FI;
+
+  function loadSignal(key) {
+    sig = SIGNALS[key];
+    FD = XD.map(sig.f); FG = XG.map(sig.f);
+    FR = new Float64Array(TG.length); FI = new Float64Array(TG.length);
+    TG.forEach((t, k) => { const [r, i] = sig.F(t); FR[k] = r; FI[k] = i; });
+  }
+
+  // f_T(x) = (1/π) ∫_0^T w(t) Re[F(t) e^{-itx}] dt, trapezoid rule on TG
+  function invert(w, Tc) {
+    const out = new Float64Array(XD.length);
+    const K = Math.min(TG.length - 1, Math.round(Tc / DTG));
+    if (K === 0) return out;
+    for (let k = 0; k <= K; k++) {
+      const c = (k === 0 || k === K ? 0.5 : 1) * w(TG[k]) * DTG / Math.PI;
+      if (c === 0) continue;
+      const fr = FR[k] * c, fi = FI[k] * c, t = TG[k];
+      for (let j = 0; j < XD.length; j++) { const a = t * XD[j]; out[j] += fr * Math.cos(a) + fi * Math.sin(a); }
+    }
+    return out;
+  }
+
+  // ---- plotting ----
+  function setup(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '11px ' + css('--mono');
+    return { ctx, w, h };
+  }
+  function niceTicks(lo, hi, n) {
+    const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw)), r = raw / mag;
+    const step = (r < 1.5 ? 1 : r < 3 ? 2 : r < 7 ? 5 : 10) * mag, out = [];
+    for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v / step) * step);
+    return out;
+  }
+  const fmtTick = v => (Math.abs(v) < 1e-12 ? '0' : +v.toPrecision(3) + '');
+  function plot(cv, o) {
+    const { ctx, w, h } = setup(cv);
+    const f = { L: 44, R: w - 10, T: 8, B: h - 22 };
+    const [x0, x1] = o.x, [y0, y1] = o.y;
+    const X = v => f.L + (v - x0) / (x1 - x0) * (f.R - f.L);
+    const Y = v => f.B - (v - y0) / (y1 - y0) * (f.B - f.T);
+    const muted = css('--muted');
+    for (const b of o.bands || []) {
+      ctx.fillStyle = b.color; ctx.globalAlpha = b.alpha ?? 0.12;
+      ctx.fillRect(X(b.x0), f.T, X(b.x1) - X(b.x0), f.B - f.T); ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = css('--line-soft'); ctx.fillStyle = muted; ctx.lineWidth = 1;
+    for (const v of niceTicks(y0, y1, 4)) {
+      ctx.beginPath(); ctx.moveTo(f.L, Y(v)); ctx.lineTo(f.R, Y(v)); ctx.stroke();
+      ctx.fillText(fmtTick(v), 4, Y(v) + 4);
+    }
+    for (const v of niceTicks(x0, x1, 6)) {
+      const s = fmtTick(v); ctx.fillText(s, X(v) - ctx.measureText(s).width / 2, f.B + 15);
+    }
+    if (y0 < 0 && y1 > 0) { ctx.strokeStyle = css('--line'); ctx.beginPath(); ctx.moveTo(f.L, Y(0)); ctx.lineTo(f.R, Y(0)); ctx.stroke(); }
+    if (o.xlabel) { ctx.fillStyle = muted; ctx.fillText(o.xlabel, f.R - ctx.measureText(o.xlabel).width, f.B - 5); }
+    ctx.save(); ctx.beginPath(); ctx.rect(f.L, f.T - 2, f.R - f.L, f.B - f.T + 4); ctx.clip();
+    for (const s of o.series) {
+      const n = s.x.length;
+      if (s.fill) {
+        const y0p = Math.min(f.B, Math.max(f.T, Y(0)));
+        const path = () => {
+          ctx.beginPath(); ctx.moveTo(X(s.x[0]), Y(0));
+          for (let i = 0; i < n; i++) ctx.lineTo(X(s.x[i]), Y(s.y[i]));
+          ctx.lineTo(X(s.x[n - 1]), Y(0)); ctx.closePath();
+        };
+        ctx.globalAlpha = s.fillAlpha ?? 0.28;
+        ctx.save(); ctx.beginPath(); ctx.rect(f.L, f.T - 2, f.R - f.L, y0p - f.T + 2); ctx.clip();
+        path(); ctx.fillStyle = s.fill; ctx.fill(); ctx.restore();
+        ctx.save(); ctx.beginPath(); ctx.rect(f.L, y0p, f.R - f.L, f.B - y0p + 2); ctx.clip();
+        path(); ctx.fillStyle = s.fillNeg || s.fill; ctx.fill(); ctx.restore();
+        ctx.globalAlpha = 1;
+      }
+      if (s.color) {
+        ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) { const px = X(s.x[i]), py = Y(s.y[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+    for (const v of o.vlines || []) {
+      ctx.strokeStyle = v.color || css('--ink'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(X(v.x), f.T); ctx.lineTo(X(v.x), f.B); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const p of o.points || []) {
+      ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), p.r || 4.5, 0, 2 * Math.PI);
+      ctx.fillStyle = p.color; ctx.fill(); ctx.strokeStyle = css('--card'); ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  const extent = (arrs, pad = 0.1) => {
+    let lo = 0, hi = 0;
+    for (const a of arrs) for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const p = (hi - lo || 1) * pad; return [lo - (lo < 0 ? p : 0), hi + p];
+  };
+  const slice = (arr, n) => Array.prototype.slice.call(arr, 0, n);
+
+  // ---- state & controls ----
+  const st = { part: 'cos' };
+  const sliders = {
+    fwdT: v => v.toFixed(2), invT: v => v.toFixed(2),
+    orS: v => v.toFixed(2), orT: v => v.toFixed(2), orL: v => v.toFixed(1),
+    pbA: v => v.toFixed(2), pbW: v => v.toFixed(2), pbE: v => v.toFixed(3), pbO: v => v.toFixed(2),
+    blS: v => v.toFixed(2),
+  };
+  const val = id => +$(id).value;
+  const fmt = v => (Math.abs(v) < 5e-5 ? '0.0000' : v.toFixed(4));
+
+  // ---- section 2: forward ----
+  function drawForward() {
+    const t = val('fwdT'), useCos = st.part === 'cos';
+    const trig = useCos ? Math.cos : Math.sin;
+    const fmax = Math.max(...FD);
+    const wave = XD.map(x => trig(t * x));
+    plot($('fwdSig'), {
+      x: [-5, 5], y: [-fmax * 1.15, fmax * 1.15], xlabel: 'x',
+      series: [
+        { x: XD, y: wave.map(v => v * fmax), color: css('--muted'), width: 1.5, dash: [5, 4] },
+        { x: XD, y: FD, color: css('--c-f'), fill: css('--c-f'), fillAlpha: 0.15 },
+      ],
+    });
+    const prod = XD.map((x, j) => FD[j] * wave[j]);
+    plot($('fwdProd'), {
+      x: [-5, 5], y: [-fmax * 1.1, fmax * 1.1], xlabel: 'x',
+      series: [{ x: XD, y: prod, color: css('--ink'), width: 1.2, fill: css('--c-re'), fillNeg: css('--c-im'), fillAlpha: 0.4 }],
+    });
+    $('fwdProd').previousElementSibling.textContent =
+      `乘积 f(x)·${useCos ? 'cos' : 'sin'}(tx)。面积（正 − 负）= ${useCos ? 'Re' : 'Im'} F(t)`;
+    let area = 0;
+    for (let i = 0; i < XG.length; i++) area += FG[i] * trig(t * XG[i]);
+    area *= DXG;
+    const n = Math.round(12 / DTG) + 1, ts = TG.slice(0, n);
+    plot($('fwdSpec'), {
+      x: [0, 12], y: [-1.05, 1.05], xlabel: 't',
+      series: [
+        { x: ts, y: slice(FI, n), color: css('--c-im') },
+        { x: ts, y: slice(FR, n), color: css('--c-re') },
+      ],
+      vlines: [{ x: t }],
+      points: [{ x: t, y: area, color: useCos ? css('--c-re') : css('--c-im') }],
+    });
+    const [re, im] = sig.F(t);
+    $('fwdArea').textContent = fmt(area);
+    $('fwdExact').textContent = (useCos ? 'Re F = ' : 'Im F = ') + fmt(useCos ? re : im);
+  }
+
+  // ---- section 3: inverse with hard cutoff ----
+  function drawInverse() {
+    const T = val('invT');
+    const rec = invert(() => 1, T);
+    plot($('invRec'), {
+      x: [-5, 5], y: extent([FD, rec]), xlabel: 'x',
+      series: [
+        { x: XD, y: FD, color: css('--c-tgt'), width: 1.5, dash: [6, 4] },
+        { x: XD, y: rec, color: css('--c-f'), width: 2 },
+      ],
+    });
+    const tmax = Math.max(6, Math.min(30, T * 1.4)), n = Math.round(tmax / DTG) + 1, ts = TG.slice(0, n);
+    plot($('invSpec'), {
+      x: [0, tmax], y: [-1.05, 1.05], xlabel: 't',
+      bands: [{ x0: 0, x1: T, color: css('--c-f'), alpha: 0.14 }],
+      series: [{ x: ts, y: slice(FI, n), color: css('--c-im') }, { x: ts, y: slice(FR, n), color: css('--c-re') }],
+      vlines: [{ x: T }],
+    });
+    let e = 0, s = 0;
+    for (let j = 0; j < XD.length; j++) { e += (FD[j] - rec[j]) ** 2; s += FD[j] ** 2; }
+    $('invErr').textContent = (e / s).toFixed(4);
+  }
+
+  // ---- section 4.2: orthogonality ----
+  const sinc = u => (Math.abs(u) < 1e-9 ? 1 : Math.sin(u) / u);
+  // 2 × (1/2L) ∫_{-L}^{L} cos(sx) cos(tx) dx
+  const orthVal = (s, t, L) => sinc((s - t) * L) + sinc((s + t) * L);
+  function drawOrth() {
+    const s = val('orS'), t = val('orT'), L = val('orL');
+    const xs = range(-L, L, 2 * L / 2400);
+    plot($('orProd'), {
+      x: [-L, L], y: [-1.1, 1.1], xlabel: 'x',
+      series: [{ x: xs, y: xs.map(x => Math.cos(s * x) * Math.cos(t * x)), color: css('--ink'), width: 0.8,
+                 fill: css('--c-re'), fillNeg: css('--c-im'), fillAlpha: 0.45 }],
+    });
+    const ss = range(0.5, 6, 0.005);
+    plot($('orCurve'), {
+      x: [0.5, 6], y: [-0.35, 1.15], xlabel: 's',
+      series: [{ x: ss, y: ss.map(u => orthVal(u, t, L)), color: css('--c-err') }],
+      vlines: [{ x: t, color: css('--muted') }],
+      points: [{ x: s, y: orthVal(s, t, L), color: css('--ink') }],
+    });
+    $('orVal').textContent = orthVal(s, t, L).toFixed(4);
+  }
+
+  // ---- section 4.3: Plancherel with a bump d(x) = ε exp(-(x-a)²/2w²) cos(ωx) ----
+  function drawPlancherel() {
+    const a = val('pbA'), w = val('pbW'), eps = val('pbE'), om = val('pbO');
+    const d = x => eps * Math.exp(-((x - a) ** 2) / (2 * w * w)) * Math.cos(om * x);
+    const g = XD.map((x, j) => FD[j] + d(x));
+    plot($('pbSig'), {
+      x: [-5, 5], y: extent([FD, g]), xlabel: 'x',
+      series: [
+        { x: XD, y: FD, color: css('--c-tgt'), width: 1.5, dash: [6, 4] },
+        { x: XD, y: g, color: css('--c-f') },
+      ],
+    });
+    // D(t) = ½[G(t+ω) + G(t−ω)], G(u) = ε w √(2π) e^{iua} e^{−w²u²/2}
+    const G = u => { const m = eps * w * Math.sqrt(2 * Math.PI) * Math.exp(-w * w * u * u / 2); return [m * Math.cos(u * a), m * Math.sin(u * a)]; };
+    const D2 = TG.map(t => { const [r1, i1] = G(t + om), [r2, i2] = G(t - om); return ((r1 + r2) / 2) ** 2 + ((i1 + i2) / 2) ** 2; });
+    let et = 0, e3 = 0;
+    D2.forEach((v, k) => { const c = (k === 0 || k === TG.length - 1 ? 0.5 : 1) * v * DTG / Math.PI; et += c; if (TG[k] <= 3) e3 += c; });
+    const ex = eps * eps * w * Math.sqrt(Math.PI) * (1 + Math.cos(2 * om * a) * Math.exp(-om * om * w * w)) / 2;
+    const n = Math.round(20 / DTG) + 1;
+    plot($('pbSpec'), {
+      x: [0, 20], y: [0, Math.max(1e-6, ...D2) * 1.12], xlabel: 't',
+      bands: [{ x0: 0, x1: 3, color: css('--c-tgt'), alpha: 0.1 }],
+      series: [{ x: TG.slice(0, n), y: D2.slice(0, n), color: css('--c-err'), fill: css('--c-err'), fillAlpha: 0.18 }],
+    });
+    $('pbEx').textContent = ex.toFixed(5);
+    $('pbEt').textContent = et.toFixed(5);
+    $('pbFrac').textContent = et > 1e-12 ? (100 * e3 / et).toFixed(1) + '%' : '—';
+  }
+
+  // ---- section 4.4: Gaussian-window inversion vs direct blur ----
+  function drawBlur() {
+    const sg = val('blS');
+    const win = t => Math.exp(-sg * sg * t * t / 2);
+    const rec = invert(win, 40);
+    const direct = XD.map(x => {
+      let s = 0;
+      for (let i = 0; i < XG.length; i++) { const u = x - XG[i]; if (Math.abs(u) < 6 * sg) s += FG[i] * npdf(u, 0, sg); }
+      return s * DXG;
+    });
+    plot($('blRec'), {
+      x: [-5, 5], y: extent([FD, rec]), xlabel: 'x',
+      series: [
+        { x: XD, y: FD, color: css('--muted'), width: 1.2 },
+        { x: XD, y: rec, color: css('--c-f'), width: 3 },
+        { x: XD, y: direct, color: css('--c-tgt'), width: 1.6, dash: [6, 4] },
+      ],
+    });
+    const n = Math.round(12 / DTG) + 1, ts = TG.slice(0, n);
+    plot($('blSpec'), {
+      x: [0, 12], y: [-1.05, 1.05], xlabel: 't',
+      series: [
+        { x: ts, y: slice(FR, n), color: css('--muted'), width: 1.2 },
+        { x: ts, y: ts.map(win), color: css('--muted'), width: 1.2, dash: [5, 4] },
+        { x: ts, y: ts.map((t, k) => FR[k] * win(t)), color: css('--c-re') },
+      ],
+    });
+    let md = 0; for (let j = 0; j < XD.length; j++) md = Math.max(md, Math.abs(rec[j] - direct[j]));
+    $('blDiff').textContent = md.toExponential(1);
+  }
+
+  // ---- wiring ----
+  const groups = {
+    fwd: drawForward, inv: drawInverse, or: drawOrth, pb: drawPlancherel, bl: drawBlur,
+  };
+  const pending = new Set();
+  function schedule(...fns) {
+    const first = pending.size === 0;
+    fns.forEach(f => pending.add(f));
+    if (first) requestAnimationFrame(() => { const fs = [...pending]; pending.clear(); fs.forEach(f => f()); });
+  }
+  const drawAll = () => schedule(...Object.values(groups));
+  for (const [id, f] of Object.entries(sliders)) {
+    const out = $(id + 'Out'), group = groups[id.match(/^[a-z]+/)[0]];
+    const sync = () => { out.textContent = f(val(id)); };
+    sync();
+    $(id).addEventListener('input', () => { sync(); schedule(group); });
+  }
+  $('sigSel').addEventListener('change', e => { loadSignal(e.target.value); drawAll(); });
+  for (const [id, part] of [['partCos', 'cos'], ['partSin', 'sin']]) {
+    $(id).addEventListener('click', () => {
+      st.part = part;
+      $('partCos').classList.toggle('on', part === 'cos');
+      $('partSin').classList.toggle('on', part === 'sin');
+      schedule(drawForward);
+    });
+  }
+  let playing = null;
+  $('invPlay').addEventListener('click', () => {
+    if (playing) { cancelAnimationFrame(playing); playing = null; $('invPlay').textContent = '▶ 从 0 开始加'; return; }
+    $('invPlay').textContent = '⏸ 停止';
+    const t0 = performance.now(), dur = 8000, s = $('invT');
+    const step = now => {
+      const p = Math.min(1, (now - t0) / dur);
+      s.value = (30 * p * p).toFixed(2); s.dispatchEvent(new Event('input'));
+      if (p < 1) playing = requestAnimationFrame(step);
+      else { playing = null; $('invPlay').textContent = '▶ 从 0 开始加'; }
+    };
+    playing = requestAnimationFrame(step);
+  });
+  window.addEventListener('resize', drawAll);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+
+  loadSignal($('sigSel').value);
+  drawAll();
+})();
+</script>
+</body>
+</html>
