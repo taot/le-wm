@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGReg 特征函数</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #1d2433;
+  --muted: #667085;
+  --line: #d0d5dd;
+  --line-soft: #e4e7ec;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+  --c-pt: #0d9488;
+  --c-re: #2563eb;
+  --c-im: #d97706;
+  --c-tgt: #dc2626;
+  --c-err: #9333ea;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --card: #171b24; --ink: #e6e9ef; --muted: #98a2b3;
+    --line: #344054; --line-soft: #252b37; --accent: #60a5fa; --accent-soft: rgba(96, 165, 250, 0.16);
+    --c-pt: #2dd4bf; --c-re: #60a5fa; --c-im: #fbbf24; --c-tgt: #f87171; --c-err: #c084fc;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --card: #171b24; --ink: #e6e9ef; --muted: #98a2b3;
+  --line: #344054; --line-soft: #252b37; --accent: #60a5fa; --accent-soft: rgba(96, 165, 250, 0.16);
+  --c-pt: #2dd4bf; --c-re: #60a5fa; --c-im: #fbbf24; --c-tgt: #f87171; --c-err: #c084fc;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", sans-serif; }
+button, select, input { font: inherit; color: inherit; }
+
+header { position: sticky; top: 0; z-index: 10; background: var(--card);
+  border-bottom: 1px solid var(--line-soft); padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { font-weight: 700; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 500; }
+.controls { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; flex: 1 1 auto; }
+.ctl { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ctl label { color: var(--muted); }
+.ctl output { font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 3.4em; }
+select { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 4px 8px; }
+input[type=range] { accent-color: var(--accent); width: 130px; }
+#tSlider { width: 200px; }
+.btn { border: 1px solid var(--line); background: var(--card); padding: 5px 11px;
+  border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { color: #fff; filter: brightness(1.08); }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px; gap: 16px; padding: 16px; align-items: start; }
+@media (max-width: 1180px) { main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } aside { grid-column: 1 / -1; } }
+@media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); } #tSlider { width: 150px; } }
+.card { background: var(--card); border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.card h2 { font-size: 14px; margin: 0 0 2px; }
+.card .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+canvas { display: block; width: 100%; }
+#circle { aspect-ratio: 1 / 1; }
+#curves { aspect-ratio: 16 / 10; }
+#contrib { aspect-ratio: 16 / 7; }
+#hist { aspect-ratio: 16 / 9; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.legend i.dash { background: repeating-linear-gradient(90deg, var(--c-tgt) 0 4px, transparent 4px 7px) !important; }
+
+.stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.stats dt { color: var(--muted); }
+.stats dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.big { font-size: 26px; font-weight: 700; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.big small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 6px; }
+.meter { height: 8px; border-radius: 4px; background: var(--line-soft); overflow: hidden; margin: 6px 0 12px; }
+.meter div { height: 100%; background: var(--c-err); width: 0; transition: width .15s; }
+aside p, aside li { font-size: 13px; color: var(--ink); }
+aside ul { padding-left: 18px; margin: 6px 0; }
+.notes { padding-left: 18px; margin: 10px 0 2px; font-size: 12.5px; color: var(--muted); }
+.notes li { margin: 4px 0; }
+.notes b { color: var(--ink); }
+aside li { margin: 3px 0; }
+code { font-family: var(--mono); font-size: 12px; background: var(--accent-soft); padding: 1px 4px; border-radius: 4px; }
+.k-re { color: var(--c-re); font-weight: 600; } .k-im { color: var(--c-im); font-weight: 600; }
+.k-tgt { color: var(--c-tgt); font-weight: 600; } .k-pt { color: var(--c-pt); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">SIGReg 特征函数 <span>· 单个一维投影</span></div>
+  <div class="controls">
+    <div class="ctl"><label for="dist">分布</label>
+      <select id="dist">
+        <option value="gauss">N(0,1) 目标</option>
+        <option value="collapse">坍缩 N(0, 0.15²)</option>
+        <option value="wide">太宽 N(0, 2²)</option>
+        <option value="shift">偏移 N(1, 1)</option>
+        <option value="bimodal">双峰（方差=1）</option>
+        <option value="uniform">均匀（方差=1）</option>
+        <option value="laplace">Laplace 重尾（方差=1）</option>
+      </select>
+    </div>
+    <div class="ctl"><label for="nSlider">N</label>
+      <input id="nSlider" type="range" min="4" max="11" step="1" value="8"><output id="nOut">256</output></div>
+    <button class="btn" id="resample">重新采样</button>
+    <div class="ctl"><label for="tSlider">t</label>
+      <input id="tSlider" type="range" min="0" max="3" step="0.005" value="1"><output id="tOut">1.000</output></div>
+    <button class="btn primary" id="play">▶ 播放</button>
+  </div>
+</header>
+
+<main>
+  <div class="col">
+    <div class="card">
+      <h2>单位圆：每个样本 x 放在角度 t·x</h2>
+      <p class="sub">重心 = φ̂(t)。目标点 = (e<sup>−t²/2</sup>, 0)。两点之间的线段就是误差。</p>
+      <canvas id="circle"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--c-pt)"></i>样本点</span>
+        <span><i style="background:var(--ink)"></i>重心 φ̂(t)</span>
+        <span><i style="background:var(--c-tgt)"></i>目标 φ(t)</span>
+        <span><i style="background:var(--c-err)"></i>误差</span>
+        <span><i style="background:var(--muted)"></i>φ̂ 在 t∈[0,3] 的轨迹</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>样本直方图</h2>
+      <p class="sub">红色曲线是 N(0,1) 密度。</p>
+      <canvas id="hist"></canvas>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <h2>φ̂(t) 随 t 变化</h2>
+      <p class="sub">圆点是代码中的 17 个 knot（<code>linspace(0, 3, 17)</code>）。</p>
+      <canvas id="curves"></canvas>
+      <div class="legend">
+        <span><i class="dash"></i>目标 e<sup>−t²/2</sup></span>
+        <span><i style="background:var(--c-re)"></i>Re φ̂ = mean cos(tx)</span>
+        <span><i style="background:var(--c-im)"></i>Im φ̂ = mean sin(tx)</span>
+      </div>
+      <ul class="notes">
+        <li>这里画的是<b>原始值</b>，没有乘权重 w<sub>k</sub>。它显示"在每个 t 偏差有多大"。</li>
+        <li>紫色阴影只是 <span class="k-re">Re φ̂</span> 和目标之间的差，不包括 <span class="k-im">Im</span> 的误差，也没有加权。</li>
+        <li>泰勒展开：φ(t) ≈ 1 + iμt − (σ² + μ²)·t²/2 + O(t³)。小 t 只能看到均值和方差；大 t 才能看到偏度、峰度等形状。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>每个 knot 对损失的贡献</h2>
+      <p class="sub">N · w<sub>k</sub> · err(t<sub>k</sub>)。所有柱子加起来 = SIGReg。灰色曲线是窗口 e<sup>−t²/2</sup> 的形状。</p>
+      <canvas id="contrib"></canvas>
+      <ul class="notes">
+        <li><b>纵轴</b>：上限 = max(1, 最高的柱子) × 1.1，所以上限是 1.1 时，每根柱子都小于 1。</li>
+        <li><b>灰色曲线</b>：只显示权重怎样随 t 下降。它被缩放到面板高度，<b>不使用</b>柱子的纵轴刻度。</li>
+        <li><b>为什么先升高后下降</b>：每根柱子 = err(t) × 权重。err(t) 随 t 增大（t = 0 时所有点在 (1, 0)，err 一定是 0）；权重 w<sub>k</sub> = 梯形系数（两端 Δt，中间 2Δt）× e<sup>−t²/2</sup> 随 t 减小（t = 3 时只有约 0.011）。两者相乘，得到中间高、两边低的形状。</li>
+        <li><b>完美的 N(0,1) 也有这个形状</b>：只有 N 个样本，重心会随机抖动。噪声的期望是 E[N·err(t)] = 1 − e<sup>−t²</sup>，所以纯噪声的柱子 ≈ 2Δt · e<sup>−t²/2</sup> · (1 − e<sup>−t²</sup>)。最大值在 t = √ln3 ≈ 1.05。这个值和 N 无关。</li>
+        <li><b>所以</b>：峰的位置不一定说明 t ≈ 1 有问题。柱子的高度和样本有关，按「重新采样」高度会改变很多，但形状大致不变。对 N(0,1)，所有柱子的总和（即 SIGReg）平均约为 1.0。</li>
+        <li><b>比较分布</b>：坍缩 / 太宽 / 偏移在小 t 和中等 t 就有大偏差，峰在左边，柱子很高。均匀 / 双峰 / Laplace 的偏差在较大的 t 才出现，峰向右移动，但窗口在右边很小，所以它们在损失中的权重小很多。</li>
+        <li><b>窗口的作用</b>：SIGReg 主要惩罚低阶错误（均值、方差），对高阶形状差异惩罚较轻，因为大 t 的估计噪声更大。</li>
+      </ul>
+    </div>
+  </div>
+
+  <aside class="col">
+    <div class="card">
+      <h2>SIGReg 统计量</h2>
+      <div class="big" id="statBig">—<small></small></div>
+      <div class="meter"><div id="meter"></div></div>
+      <dl class="stats">
+        <dt>当前 t</dt><dd id="sT"></dd>
+        <dt><span class="k-re">Re φ̂(t)</span></dt><dd id="sRe"></dd>
+        <dt><span class="k-im">Im φ̂(t)</span></dt><dd id="sIm"></dd>
+        <dt><span class="k-tgt">目标 e<sup>−t²/2</sup></span></dt><dd id="sTgt"></dd>
+        <dt>err(t)</dt><dd id="sErr"></dd>
+        <dt>样本均值</dt><dd id="sMean"></dd>
+        <dt>样本方差</dt><dd id="sVar"></dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h2>怎样读这个页面</h2>
+      <ul>
+        <li><b>t 小</b>：所有点挤在角度 0 附近，重心靠近 (1, 0)。</li>
+        <li><b>t 变大</b>：点沿圆散开，重心向圆心收缩。对 N(0,1)，重心刚好以 e<sup>−t²/2</sup> 的速度收缩。</li>
+        <li><b>坍缩</b>：点不散开，重心停在 (1, 0) 附近，比目标大。</li>
+        <li><b>太宽</b>：点散开太快，重心收缩太快。</li>
+        <li><b>偏移</b>：整个点云旋转 t·μ，<span class="k-im">Im</span> 不再是 0。</li>
+        <li><b>双峰 / 均匀 / Laplace</b>：均值和方差都正确。小 t 看不出差异，只有较大的 t 能发现。</li>
+      </ul>
+      <p>err(t) = (<span class="k-re">Re φ̂</span> − <span class="k-tgt">e<sup>−t²/2</sup></span>)² + <span class="k-im">Im φ̂</span>²，即重心到目标点距离的平方。</p>
+      <p>对应 <code>module.py</code>：</p>
+      <p><code>x_t = (proj @ A)[..., None] * t</code><br>
+      <code>err = (cos.mean − phi)² + sin.mean²</code><br>
+      <code>stat = (err @ weights) * N</code></p>
+      <p>真实训练中，<code>A</code> 有 1024 个随机方向，每个方向做一次这个一维检验，然后取平均。由 Cramér–Wold 定理，所有一维投影都是 N(0,1) ⇔ 整体是各向同性高斯。</p>
+    </div>
+    <div class="card">
+      <h2>为什么用特征函数</h2>
+      <ul>
+        <li><b>可微</b>：只用 cos 和 sin，梯度可以直接回传。</li>
+        <li><b>有界</b>：每个点都在单位圆上，一个离群值的影响最多是 1/N。直接匹配高阶矩（如 x⁴）时，离群值的影响会非常大。</li>
+        <li><b>不需要分箱</b>：和直方图不同，没有 bin 宽度这个超参数。</li>
+        <li><b>完全确定分布</b>：两个分布的特征函数相同 ⇔ 两个分布相同。</li>
+      </ul>
+      <p>一句话：特征函数就是"把样本以 t 倍速绕圆排开后的重心"。SIGReg 要求在 t ∈ [0, 3] 的每个位置，这个重心都和标准高斯的重心 (e<sup>−t²/2</sup>, 0) 重合。</p>
+    </div>
+  </aside>
+</main>
+
+<script>
+(() => {
+  // ---- same grid and weights as module.py SIGReg ----
+  const KNOTS = 17, TMAX = 3, DT = TMAX / (KNOTS - 1);
+  const TK = Array.from({ length: KNOTS }, (_, i) => i * DT);
+  const WIN = TK.map(t => Math.exp(-t * t / 2));
+  const WK = TK.map((t, i) => (i === 0 || i === KNOTS - 1 ? DT : 2 * DT) * WIN[i]);
+
+  // ---- seeded RNG ----
+  let seed = 12345;
+  function rand() {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let r = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  }
+  function randn() {
+    let u = 0; while (u === 0) u = rand();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rand());
+  }
+  const SAMPLERS = {
+    gauss: () => randn(),
+    collapse: () => 0.15 * randn(),
+    wide: () => 2 * randn(),
+    shift: () => 1 + randn(),
+    bimodal: () => (rand() < 0.5 ? -0.9 : 0.9) + 0.436 * randn(),
+    uniform: () => (2 * rand() - 1) * Math.sqrt(3),
+    laplace: () => { const u = rand() - 0.5; return -Math.SQRT1_2 * Math.sign(u) * Math.log(1 - 2 * Math.abs(u)); },
+  };
+
+  // ---- state ----
+  const $ = id => document.getElementById(id);
+  const state = { dist: 'gauss', n: 256, t: 1, xs: [], playing: false };
+
+  function sample() {
+    const f = SAMPLERS[state.dist];
+    state.xs = Array.from({ length: state.n }, f);
+  }
+  function ecf(t) {
+    let c = 0, s = 0;
+    for (const x of state.xs) { c += Math.cos(t * x); s += Math.sin(t * x); }
+    return [c / state.xs.length, s / state.xs.length];
+  }
+  const errAt = (t, [c, s]) => (c - Math.exp(-t * t / 2)) ** 2 + s * s;
+  function sigreg() {
+    const per = TK.map((t, i) => state.xs.length * WK[i] * errAt(t, ecf(t)));
+    return { per, total: per.reduce((a, b) => a + b, 0) };
+  }
+
+  // ---- canvas helpers ----
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  function setup(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '11px ' + css('--mono');
+    return { ctx, w, h };
+  }
+  function dot(ctx, x, y, r, fill, stroke) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  // ---- circle view ----
+  function drawCircle() {
+    const { ctx, w, h } = setup($('circle'));
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.42;
+    const P = (re, im) => [cx + re * R, cy - im * R];
+    const ink = css('--ink'), muted = css('--muted'), soft = css('--line-soft');
+
+    // axes + circle
+    ctx.strokeStyle = soft; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - R * 1.15, cy); ctx.lineTo(cx + R * 1.15, cy);
+    ctx.moveTo(cx, cy - R * 1.15); ctx.lineTo(cx, cy + R * 1.15); ctx.stroke();
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.stroke();
+    ctx.fillStyle = muted;
+    ctx.fillText('Re', cx + R * 1.08, cy - 6); ctx.fillText('Im', cx + 6, cy - R * 1.08);
+    ctx.fillText('1', cx + R + 4, cy + 13); ctx.fillText('0', cx + 4, cy + 13);
+
+    // samples on circle (deterministic radial jitter so overlapping points stay visible)
+    const t = state.t;
+    ctx.fillStyle = css('--c-pt'); ctx.globalAlpha = Math.max(0.12, Math.min(0.6, 40 / state.n));
+    state.xs.forEach((x, i) => {
+      const r = 1 - 0.07 * ((i * 0.6180339887) % 1);
+      const [px, py] = P(r * Math.cos(t * x), r * Math.sin(t * x));
+      ctx.beginPath(); ctx.arc(px, py, 3, 0, 2 * Math.PI); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // target path (real axis 1 → e^{-9/2}) and empirical path over t ∈ [0, 3]
+    ctx.strokeStyle = css('--c-tgt'); ctx.globalAlpha = 0.35; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(...P(1, 0)); ctx.lineTo(...P(Math.exp(-4.5), 0)); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = muted; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+    ctx.beginPath();
+    for (let k = 0; k <= 150; k++) {
+      const tt = k / 150 * TMAX, [c, s] = ecf(tt);
+      const [px, py] = P(c, s); k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+
+    // centroid, target, error segment
+    const [c, s] = ecf(t), tg = Math.exp(-t * t / 2);
+    ctx.strokeStyle = css('--c-err'); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(...P(c, s)); ctx.lineTo(...P(tg, 0)); ctx.stroke();
+    dot(ctx, ...P(tg, 0), 7, null, css('--c-tgt'));
+    dot(ctx, ...P(c, s), 6, ink);
+    // angle hint: ray to sample mean angle
+    ctx.fillStyle = ink; ctx.font = '12px ' + css('--mono');
+    const [lx, ly] = P(c, s);
+    ctx.fillText('φ̂(t)', lx + 9, ly - 8);
+  }
+
+  // ---- curves view ----
+  function frame(w, h) { return { L: 38, R: w - 12, T: 10, B: h - 26 }; }
+  function drawCurves() {
+    const { ctx, w, h } = setup($('curves'));
+    const f = frame(w, h);
+    const X = t => f.L + (t / TMAX) * (f.R - f.L);
+    const Y = v => f.T + (1 - (v + 1) / 2) * (f.B - f.T);
+    const muted = css('--muted'), soft = css('--line-soft');
+
+    ctx.strokeStyle = soft; ctx.lineWidth = 1; ctx.fillStyle = muted;
+    for (const v of [-1, -0.5, 0, 0.5, 1]) {
+      ctx.beginPath(); ctx.moveTo(f.L, Y(v)); ctx.lineTo(f.R, Y(v)); ctx.stroke();
+      ctx.fillText(v.toFixed(1), 4, Y(v) + 4);
+    }
+    for (let t = 0; t <= 3; t++) ctx.fillText(String(t), X(t) - 3, f.B + 16);
+    ctx.fillText('t', f.R - 6, f.B + 16);
+
+    const line = (fn, color, dash) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      for (let k = 0; k <= 200; k++) {
+        const t = k / 200 * TMAX, v = fn(t);
+        k ? ctx.lineTo(X(t), Y(v)) : ctx.moveTo(X(t), Y(v));
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    };
+    const cache = new Map();
+    const E = t => { if (!cache.has(t)) cache.set(t, ecf(t)); return cache.get(t); };
+
+    // shaded gap between Re φ̂ and target
+    ctx.fillStyle = css('--c-err'); ctx.globalAlpha = 0.12;
+    ctx.beginPath();
+    for (let k = 0; k <= 200; k++) { const t = k / 200 * TMAX; ctx.lineTo(X(t), Y(E(t)[0])); }
+    for (let k = 200; k >= 0; k--) { const t = k / 200 * TMAX; ctx.lineTo(X(t), Y(Math.exp(-t * t / 2))); }
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+
+    line(t => Math.exp(-t * t / 2), css('--c-tgt'), [6, 4]);
+    line(t => E(t)[1], css('--c-im'));
+    line(t => E(t)[0], css('--c-re'));
+
+    TK.forEach(t => { const [c, s] = E(t); dot(ctx, X(t), Y(c), 2.6, css('--c-re')); dot(ctx, X(t), Y(s), 2.6, css('--c-im')); });
+
+    // current t
+    ctx.strokeStyle = css('--ink'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(X(state.t), f.T); ctx.lineTo(X(state.t), f.B); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // ---- contribution bars ----
+  function drawContrib(per) {
+    const { ctx, w, h } = setup($('contrib'));
+    const f = frame(w, h);
+    const X = t => f.L + (t / TMAX) * (f.R - f.L);
+    const ymax = Math.max(1, ...per) * 1.1;
+    const Y = v => f.B - (v / ymax) * (f.B - f.T);
+    ctx.fillStyle = css('--muted');
+    ctx.fillText(ymax.toFixed(ymax < 10 ? 1 : 0), 2, f.T + 8); ctx.fillText('0', 24, f.B + 4);
+    for (let t = 0; t <= 3; t++) ctx.fillText(String(t), X(t) - 3, f.B + 16);
+    ctx.strokeStyle = css('--line-soft'); ctx.beginPath(); ctx.moveTo(f.L, f.B); ctx.lineTo(f.R, f.B); ctx.stroke();
+
+    // window shape, scaled to the panel height
+    ctx.strokeStyle = css('--muted'); ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let k = 0; k <= 100; k++) { const t = k / 100 * TMAX; const y = f.B - Math.exp(-t * t / 2) * (f.B - f.T) * 0.9; k ? ctx.lineTo(X(t), y) : ctx.moveTo(X(t), y); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+
+    const bw = (f.R - f.L) / KNOTS * 0.6;
+    per.forEach((v, i) => {
+      ctx.fillStyle = css('--c-err');
+      ctx.fillRect(X(TK[i]) - bw / 2, Y(v), bw, f.B - Y(v));
+    });
+  }
+
+  // ---- histogram ----
+  function drawHist() {
+    const { ctx, w, h } = setup($('hist'));
+    const f = { L: 10, R: w - 10, T: 8, B: h - 22 };
+    const lo = -4.5, hi = 4.5, bins = 45, bwid = (hi - lo) / bins;
+    const X = v => f.L + (v - lo) / (hi - lo) * (f.R - f.L);
+    const counts = new Array(bins).fill(0);
+    for (const x of state.xs) { const b = Math.floor((x - lo) / bwid); if (b >= 0 && b < bins) counts[b]++; }
+    const dens = counts.map(c => c / (state.xs.length * bwid));
+    const ymax = Math.max(0.45, ...dens) * 1.05;
+    const Y = v => f.B - v / ymax * (f.B - f.T);
+    ctx.fillStyle = css('--c-pt'); ctx.globalAlpha = 0.55;
+    dens.forEach((d, i) => ctx.fillRect(X(lo + i * bwid) + 0.5, Y(d), (f.R - f.L) / bins - 1, f.B - Y(d)));
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = css('--c-tgt'); ctx.lineWidth = 2; ctx.beginPath();
+    for (let k = 0; k <= 200; k++) { const v = lo + k / 200 * (hi - lo); const y = Y(Math.exp(-v * v / 2) / Math.sqrt(2 * Math.PI)); k ? ctx.lineTo(X(v), y) : ctx.moveTo(X(v), y); }
+    ctx.stroke();
+    ctx.strokeStyle = css('--line-soft'); ctx.beginPath(); ctx.moveTo(f.L, f.B); ctx.lineTo(f.R, f.B); ctx.stroke();
+    ctx.fillStyle = css('--muted');
+    for (const v of [-4, -2, 0, 2, 4]) ctx.fillText(String(v), X(v) - 4, f.B + 15);
+  }
+
+  // ---- render all ----
+  function render() {
+    const { per, total } = sigreg();
+    const [c, s] = ecf(state.t), tg = Math.exp(-(state.t ** 2) / 2);
+    const mean = state.xs.reduce((a, b) => a + b, 0) / state.xs.length;
+    const vr = state.xs.reduce((a, b) => a + (b - mean) ** 2, 0) / state.xs.length;
+    $('statBig').innerHTML = total.toFixed(2) + '<small>N·Σ w·err</small>';
+    $('meter').style.width = Math.min(100, 100 * Math.log10(1 + total) / Math.log10(1 + 300)) + '%';
+    $('sT').textContent = state.t.toFixed(3);
+    $('sRe').textContent = c.toFixed(4);
+    $('sIm').textContent = s.toFixed(4);
+    $('sTgt').textContent = tg.toFixed(4);
+    $('sErr').textContent = errAt(state.t, [c, s]).toExponential(2);
+    $('sMean').textContent = mean.toFixed(3);
+    $('sVar').textContent = vr.toFixed(3);
+    drawCircle(); drawCurves(); drawContrib(per); drawHist();
+  }
+
+  // ---- controls ----
+  $('dist').onchange = e => { state.dist = e.target.value; sample(); render(); };
+  $('nSlider').oninput = e => { state.n = 2 ** +e.target.value; $('nOut').textContent = state.n; sample(); render(); };
+  $('resample').onclick = () => { seed = (Math.random() * 2 ** 31) | 0; sample(); render(); };
+  $('tSlider').oninput = e => { state.t = +e.target.value; $('tOut').textContent = state.t.toFixed(3); render(); };
+
+  let last = 0;
+  function tick(ts) {
+    if (!state.playing) return;
+    if (last) {
+      state.t += (ts - last) / 1000 * 0.5;
+      if (state.t > TMAX) state.t = 0;
+      $('tSlider').value = state.t; $('tOut').textContent = state.t.toFixed(3);
+      render();
+    }
+    last = ts; requestAnimationFrame(tick);
+  }
+  $('play').onclick = () => {
+    state.playing = !state.playing; last = 0;
+    $('play').textContent = state.playing ? '❚❚ 暂停' : '▶ 播放';
+    if (state.playing) requestAnimationFrame(tick);
+  };
+  window.addEventListener('resize', render);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+
+  sample(); render();
+})();
+</script>
+</body>
+</html>
