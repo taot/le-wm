@@ -1,0 +1,1221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeWM Training Step</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #1d2433;
+  --muted: #667085;
+  --line: #d0d5dd;
+  --line-soft: #e4e7ec;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+  --k-pix: #3b82f6;
+  --k-tok: #6366f1;
+  --k-emb: #0d9488;
+  --k-act: #d97706;
+  --k-attn: #9333ea;
+  --k-pred: #db2777;
+  --k-loss: #dc2626;
+  --k-param: #64748b;
+  --k-mod: #ea580c;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button { font: inherit; }
+
+/* ---------- header ---------- */
+header { position: sticky; top: 0; z-index: 10; background: var(--card);
+  border-bottom: 1px solid var(--line-soft); padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 500; }
+#crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1 1 260px; min-width: 0; }
+#crumbs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; color: var(--accent); cursor: pointer; }
+#crumbs button:hover { background: var(--accent-soft); }
+#crumbs .here { color: var(--ink); font-weight: 600; cursor: default; }
+#crumbs .here:hover { background: none; }
+#crumbs .sep { color: var(--muted); }
+.controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  padding: 5px 11px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
+#slider { width: 140px; accent-color: var(--accent); }
+#counter { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 64px; text-align: right; }
+
+/* ---------- layout ---------- */
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; align-items: start; }
+@media (max-width: 960px) { main { grid-template-columns: minmax(0, 1fr); } }
+#stage-wrap { background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; position: relative; }
+#stage { position: absolute; left: 0; top: 0; width: 1300px; height: 760px; transform-origin: 0 0; }
+#scene { position: absolute; inset: 0;
+  background-image: radial-gradient(circle, #e6e9ef 1px, transparent 1.2px); background-size: 22px 22px; }
+#scene.anim-in { animation: zin 0.55s cubic-bezier(.2,.7,.2,1); }
+#scene.anim-out { animation: zout 0.5s cubic-bezier(.2,.7,.2,1); }
+@keyframes zin { from { transform: scale(0.25); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes zout { from { transform: scale(2.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+#scene-title { position: absolute; left: 22px; top: 14px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+svg#edges { position: absolute; inset: 0; width: 1300px; height: 760px; overflow: visible; }
+.edge { fill: none; stroke: #c3c9d4; stroke-width: 1.6; }
+.edge.done { stroke: #8a94a6; }
+.edge.active { stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: 7 6; animation: flow 0.7s linear infinite; }
+.edge.skip { stroke-dasharray: 3 4; }
+.edge.skip.active { stroke-dasharray: 7 6; }
+@keyframes flow { to { stroke-dashoffset: -13; } }
+
+/* ---------- nodes ---------- */
+.node { position: absolute; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+  padding: 4px 8px; transition: border-color .3s, box-shadow .3s, background .3s, opacity .3s; user-select: none; }
+.node .n-label { font-weight: 600; font-size: 14px; line-height: 1.2; }
+.node .n-sub { font-size: 11.5px; color: var(--muted); line-height: 1.25; margin-top: 2px; }
+.node.io { background: #eef1f5; border-style: dashed; }
+.node.done { border-color: #98a2b3; }
+.node.active { border-color: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }
+.node.zoomable { cursor: pointer; }
+.node.zoomable:hover { border-color: var(--accent); }
+.node .zoom { position: absolute; top: -9px; right: -9px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 15px; line-height: 19px; text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.node.pulse { animation: pulse 0.65s ease; }
+.node .n-out { display: none; position: absolute; bottom: -9px; right: 8px; background: #fff; border: 1px solid var(--line);
+  border-radius: 5px; padding: 0 5px; font-family: var(--mono); font-size: 10.5px; line-height: 16px; color: var(--muted); white-space: nowrap; }
+.node.done .n-out { display: block; }
+@keyframes pulse { 40% { background: #e0e9ff; transform: scale(1.06); } }
+
+/* ---------- tensors ---------- */
+.tensor { position: absolute; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+  padding: 3px 7px 4px; border-radius: 8px; background: rgba(255,255,255,0.88); pointer-events: none;
+  transition: left .65s cubic-bezier(.4,0,.2,1), top .65s cubic-bezier(.4,0,.2,1), opacity .5s; white-space: nowrap;
+  opacity: 0.72; }
+.tensor.hot { opacity: 1; box-shadow: 0 0 0 1.5px var(--c), 0 4px 14px rgba(0,0,0,0.08); }
+.tensor.noanim, .tensor.noanim * { transition: none !important; }
+.t-name { font-size: 12px; font-weight: 600; color: var(--c); margin-bottom: 3px; }
+.t-gfx { position: relative; transition: width .5s, height .5s; }
+.t-layer { position: absolute; border-radius: 3px; background: var(--c); border: 1px solid rgba(0,0,0,0.12); }
+.t-gfx.scalar .t-layer { border-radius: 50%; }
+.t-grid { position: absolute; inset: 0; display: grid; gap: 1px; background: #fff; border: 1px solid rgba(0,0,0,.15); border-radius: 3px; overflow: hidden; }
+.t-grid i { background: var(--c); }
+.t-grid i.m { background: repeating-linear-gradient(45deg, #e4e7ec 0 3px, #f6f7f9 3px 6px); }
+.t-shape { font-family: var(--mono); font-size: 12.5px; margin-top: 4px; color: var(--ink); }
+.t-mult { font-family: var(--mono); font-size: 11px; color: #fff; background: var(--c); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.t-dims { font-size: 11px; color: var(--muted); }
+
+/* ---------- panel ---------- */
+#panel { background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; padding: 16px 18px; }
+.p-step { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+#panel h2 { font-size: 19px; margin: 4px 0 10px; letter-spacing: -0.01em; }
+.p-text { margin: 0 0 12px; }
+.p-text b { font-weight: 600; }
+.p-op { font-family: var(--mono); font-size: 12.5px; background: #f2f4f7; border-radius: 8px; padding: 9px 11px;
+  margin: 0 0 12px; white-space: pre-wrap; word-break: break-word; }
+.p-tensors { display: grid; gap: 6px; margin-bottom: 12px; }
+.p-t { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.p-t .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex: none; transform: translateY(1px); }
+.p-t .nm { font-weight: 600; }
+.p-t .sh { font-family: var(--mono); font-size: 12.5px; }
+.p-t .gone { color: var(--muted); font-size: 12px; }
+.callout { border: 1px solid #c7d7fe; background: #eef4ff; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.callout .btn { margin-top: 8px; }
+.callout.end { border-color: var(--line); background: #f8f9fb; }
+.legend { border-top: 1px solid var(--line-soft); padding-top: 12px; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.legend h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 6px; color: var(--ink); }
+.legend table { border-collapse: collapse; width: 100%; }
+.legend td { padding: 2px 0; vertical-align: top; }
+.legend td:first-child { font-family: var(--mono); color: var(--ink); width: 54px; }
+.keys { margin-top: 10px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">LeWM <span>· one training step</span></div>
+  <nav id="crumbs" aria-label="Zoom level"></nav>
+  <div class="controls">
+    <button class="btn" id="b-reset" title="Back to the beginning (Home)">⟲ Reset</button>
+    <button class="btn" id="b-out" title="Zoom out (Esc)">⤴ Zoom out</button>
+    <button class="btn" id="b-prev" title="Previous (←)">← Prev</button>
+    <button class="btn" id="b-play" title="Play / pause (Space)">▶ Play</button>
+    <button class="btn primary" id="b-next" title="Next (→)">Next →</button>
+    <input type="range" id="slider" min="0" max="1" value="0" aria-label="Step">
+    <span id="counter"></span>
+  </div>
+</header>
+<main>
+  <section id="stage-wrap">
+    <div id="stage">
+      <div id="scene">
+        <div id="scene-title"></div>
+        <svg id="edges" viewBox="0 0 1300 760">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#8a94a6"/>
+            </marker>
+            <marker id="arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+            </marker>
+          </defs>
+          <g id="edge-layer"></g>
+        </svg>
+        <div id="node-layer"></div>
+        <div id="tensor-layer"></div>
+      </div>
+    </div>
+  </section>
+  <aside id="panel"></aside>
+</main>
+
+<script>
+"use strict";
+const W = 1300, H = 760;
+const SCENES = {};
+
+/* ======================================================================
+   Helpers to build scenes
+   ====================================================================== */
+function shapeStr(shape, mult) {
+  if (!shape) return undefined;
+  return (mult ? mult + " × " : "") + (shape.length ? "(" + shape.join(", ") + ")" : "()");
+}
+function clean(o) { const r = {}; for (const k in o) if (o[k] !== undefined) r[k] = o[k]; return r; }
+
+/* A "chain" scene: one input, then a list of ops in a snake layout (2 rows).
+   The tensor "x" goes through each op in order. */
+function chain(d) {
+  const n = d.perRow || 5;
+  const rowsY = [130, 480];
+  const xs = (c) => 250 + c * (950 / (n - 1));
+  const nodes = { in: { x: 80, y: rowsY[0], w: 110, h: 50, label: d.input.label, sub: d.input.sub, kind: "io" } };
+  const edges = [];
+  const steps = [{
+    title: d.introTitle || "Input",
+    text: d.intro,
+    op: d.introOp,
+    active: ["in"],
+    t: Object.assign({ x: Object.assign({ at: "in" }, d.x0) }, d.init || {}),
+  }];
+  let prev = "in";
+  d.ops.forEach((op, k) => {
+    const row = Math.floor(k / n), col = k % n;
+    const x = row % 2 === 0 ? xs(col) : xs(n - 1 - col);
+    nodes[op.id] = clean({ x, y: rowsY[row], w: 150, h: 64, label: op.label, sub: op.sub, zoom: op.zoom, out: op.out || shapeStr(op.shape, op.mult) });
+    edges.push([prev, op.id]);
+    const t = {};
+    if (op.out !== false) {
+      t.x = clean({ via: op.id, at: op.id, shape: op.shape, names: op.names, label: op.tlabel,
+        kind: op.kind, grid: op.grid === undefined ? null : op.grid, mult: op.mult || 0 });
+    }
+    Object.assign(t, op.t || {});
+    steps.push({
+      title: op.title || op.label,
+      text: op.text,
+      op: op.code,
+      active: [op.id],
+      edges: [prev + ">" + op.id].concat(op.edges || []),
+      t,
+    });
+    prev = op.id;
+  });
+  (d.skips || []).forEach(([a, b]) => edges.push([a, b, { skip: true }]));
+  SCENES[d.id] = { id: d.id, title: d.title, nodes, edges, steps };
+}
+
+/* ======================================================================
+   Scene: the whole training step (top level)
+   ====================================================================== */
+SCENES.top = {
+  id: "top",
+  title: "Training step",
+  nodes: {
+    pin:    { x: 80,   y: 90,  w: 110, h: 50, label: "Dataset", sub: "frames", kind: "io" },
+    ain:    { x: 80,   y: 420, w: 110, h: 50, label: "Dataset", sub: "actions", kind: "io" },
+    flat:   { x: 240,  y: 90,  w: 120, h: 60, label: "Flatten time", sub: "b t → (b t)", out: "(512, 3, 112, 112)" },
+    enc:    { x: 430,  y: 90,  w: 170, h: 84, label: "Encoder", sub: "ViT-tiny · 12 blocks", zoom: "encoder", out: "(512, 192)" },
+    proj:   { x: 640,  y: 90,  w: 150, h: 60, label: "Projector", sub: "MLP 192→2048→192", zoom: "projector", out: "(128, 4, 192)" },
+    aenc:   { x: 430,  y: 420, w: 170, h: 64, label: "Action encoder", sub: "Conv1d + MLP", zoom: "embedder", out: "(128, 4, 192)" },
+    slice:  { x: 830,  y: 240, w: 130, h: 64, label: "Slice", sub: "context / target", out: "3 × (128, 3, 192)" },
+    pred:   { x: 1120, y: 230, w: 170, h: 84, label: "Predictor", sub: "causal transformer · 6 blocks", zoom: "predictor", out: "(128, 3, 192)" },
+    pproj:  { x: 1120, y: 440, w: 160, h: 60, label: "pred_proj", sub: "MLP 192→2048→192", zoom: "predproj", out: "(128, 3, 192)" },
+    ploss:  { x: 1120, y: 650, w: 160, h: 60, label: "Prediction loss", sub: "MSE", out: "()" },
+    sigreg: { x: 640,  y: 650, w: 160, h: 64, label: "SIGReg", sub: "Gaussian regularizer", zoom: "sigreg", out: "()" },
+    total:  { x: 880,  y: 650, w: 150, h: 60, label: "Total loss", sub: "pred + 0.09 · SIGReg" },
+  },
+  edges: [
+    ["pin", "flat"], ["flat", "enc"], ["enc", "proj"], ["proj", "slice"],
+    ["ain", "aenc"], ["aenc", "slice"], ["slice", "pred", { mx: 1020 }], ["pred", "pproj"],
+    ["pproj", "ploss"], ["slice", "ploss", { mx: 1022 }], ["proj", "sigreg"],
+    ["sigreg", "total"], ["ploss", "total"],
+  ],
+  steps: [
+    {
+      title: "One training batch",
+      text: "The data loader gives <b>B = 128</b> clips. Each clip has <b>T = 4</b> frames: 3 context frames and 1 more frame to predict. " +
+        "Each action is 5 raw PushT actions (2 values each) put together, so it has <b>10</b> values. " +
+        "At the end of an episode some actions are NaN. They are set to 0.",
+      op: 'batch["action"] = torch.nan_to_num(batch["action"], 0.0)',
+      active: ["pin", "ain"],
+      t: {
+        x: { at: "pin", shape: [128, 4, 3, 112, 112], names: ["B", "T", "C", "H", "W"], kind: "pix", label: "pixels" },
+        a: { at: "ain", shape: [128, 4, 10], names: ["B", "T", "A"], kind: "act", label: "action" },
+      },
+    },
+    {
+      title: "Put time into the batch",
+      text: "The encoder looks at one image at a time. So the batch and time axes are merged: 128 × 4 = <b>512</b> images.",
+      op: 'pixels = rearrange(pixels, "b t ... -> (b t) ...")',
+      active: ["flat"], edges: ["pin>flat"],
+      t: { x: { via: "flat", at: "flat", shape: [512, 3, 112, 112], names: ["B·T", "C", "H", "W"] } },
+    },
+    {
+      title: "Encoder: ViT-tiny",
+      text: "A Vision Transformer (hidden size 192, 12 blocks, 3 heads). It cuts each 112×112 image into 8×8 = 64 patches of 14×14 pixels " +
+        "and adds one CLS token, so there are <b>N = 65</b> tokens of size 192.",
+      op: "output = self.encoder(pixels, interpolate_pos_encoding=True)",
+      active: ["enc"], edges: ["flat>enc"], zoom: "enc",
+      t: { x: { via: "enc", at: "enc", shape: [512, 65, 192], names: ["B·T", "N", "D"], kind: "tok", label: "last_hidden_state" } },
+    },
+    {
+      title: "Keep only the CLS token",
+      text: "Token 0 is the CLS token. It summarizes the whole image. The other 64 tokens are not used.",
+      op: "pixels_emb = output.last_hidden_state[:, 0]",
+      active: ["enc"],
+      t: { x: { at: "enc", shape: [512, 192], names: ["B·T", "D"], label: "CLS token" } },
+    },
+    {
+      title: "Projector MLP",
+      text: "An MLP with BatchNorm maps the CLS token to the latent vector <b>z</b> (192 values).",
+      op: "emb = self.projector(pixels_emb)",
+      active: ["proj"], edges: ["enc>proj"], zoom: "proj",
+      t: { x: { via: "proj", at: "proj", shape: [512, 192], names: ["B·T", "D"], kind: "emb", label: "emb (flat)" } },
+    },
+    {
+      title: "Split time out again",
+      text: "The 512 vectors go back to 128 clips × 4 frames. This is <b>emb</b>: one latent z per frame.",
+      op: 'emb = rearrange(emb, "(b t) d -> b t d", b=b)',
+      active: ["proj"],
+      t: { x: { at: "proj", shape: [128, 4, 192], names: ["B", "T", "D"], label: "emb" } },
+    },
+    {
+      title: "Action encoder",
+      text: "The action encoder changes each 10-value action into a 192-value vector, the same size as z.",
+      op: 'act_emb = self.action_encoder(batch["action"])',
+      active: ["aenc"], edges: ["ain>aenc"], zoom: "aenc",
+      t: { a: { via: "aenc", at: "aenc", shape: [128, 4, 192], names: ["B", "T", "D"], label: "act_emb" } },
+    },
+    {
+      title: "Context and target",
+      text: "<b>Context</b>: frames 0, 1, 2 and their actions. <b>Target</b>: frames 1, 2, 3 (shifted by num_preds = 1). " +
+        "At position t the predictor must give z of frame t+1. The targets come from the same encoder, with no stop-gradient.",
+      op: "ctx_emb = emb[:, :3]\nctx_act = act_emb[:, :3]\ntgt_emb = emb[:, 1:]",
+      active: ["slice"], edges: ["proj>slice", "aenc>slice"],
+      t: {
+        ctx: { from: "slice", at: [955, 100], shape: [128, 3, 192], names: ["B", "T=3", "D"], kind: "emb", label: "ctx_emb" },
+        cact: { from: "slice", at: [955, 268], shape: [128, 3, 192], names: ["B", "T=3", "D"], kind: "act", label: "ctx_act" },
+        tgt: { from: "slice", at: "slice", shape: [128, 3, 192], names: ["B", "T=3", "D"], kind: "emb", label: "tgt_emb" },
+        a: { gone: "slice" },
+      },
+    },
+    {
+      title: "Predictor",
+      text: "A causal transformer with 6 blocks. The actions come in through <b>AdaLN-zero</b>: they set the scale, shift and gate of each block. " +
+        "Causal means position t only sees frames 0…t.",
+      op: "preds = self.predictor(ctx_emb, ctx_act)",
+      active: ["pred"], edges: ["slice>pred"], zoom: "pred",
+      t: {
+        ctx: { via: "pred", at: "pred", shape: [128, 3, 192], names: ["B", "T", "D"], kind: "pred", label: "predictor out" },
+        cact: { gone: "pred" },
+      },
+    },
+    {
+      title: "pred_proj MLP",
+      text: "Another MLP with BatchNorm. It works on (384, 192): the batch and time axes are merged for it and then split again. " +
+        "The result is <b>pred_emb</b> = ẑ for frames 1, 2, 3.",
+      op: 'preds = self.pred_proj(rearrange(preds, "b t d -> (b t) d"))\npred_emb = rearrange(preds, "(b t) d -> b t d", b=128)',
+      active: ["pproj"], edges: ["pred>pproj"], zoom: "pproj",
+      t: { ctx: { via: "pproj", at: "pproj", label: "pred_emb" } },
+    },
+    {
+      title: "Prediction loss",
+      text: "Mean squared error between the predicted ẑ (frames 1–3) and the target z (frames 1–3). The mean is over all 128 × 3 × 192 values.",
+      op: "pred_loss = (pred_emb - tgt_emb).pow(2).mean()",
+      active: ["ploss"], edges: ["pproj>ploss", "slice>ploss"],
+      t: {
+        ctx: { gone: "ploss" }, tgt: { gone: "ploss" },
+        pl: { from: "ploss", at: [970, 548], shape: [], names: [], kind: "loss", label: "pred_loss" },
+      },
+    },
+    {
+      title: "SIGReg",
+      text: "Without help, the encoder could map every image to the same z and get a prediction loss of 0 (collapse). " +
+        "SIGReg stops this: it gives a penalty when the embeddings of all 4 frames do not look like a standard Gaussian.",
+      op: "sigreg_loss = sigreg(emb.transpose(0, 1))",
+      active: ["sigreg"], edges: ["proj>sigreg"], zoom: "sigreg",
+      t: {
+        x: { gone: "sigreg" },
+        sl: { from: "sigreg", at: [760, 548], shape: [], names: [], kind: "loss", label: "sigreg_loss" },
+      },
+    },
+    {
+      title: "Total loss",
+      text: "The two losses are added, with weight λ = 0.09 for SIGReg. This one number is what training makes smaller. " +
+        "(After this: backward pass and an AdamW step, lr 5e-5. Not shown here.)",
+      op: "loss = pred_loss + 0.09 * sigreg_loss",
+      active: ["total"], edges: ["sigreg>total", "ploss>total"],
+      t: {
+        pl: { gone: "total" }, sl: { gone: "total" },
+        loss: { from: "total", at: [880, 548], shape: [], names: [], kind: "loss", label: "loss" },
+      },
+    },
+  ],
+};
+
+/* ======================================================================
+   Scene: encoder (ViT-tiny)
+   ====================================================================== */
+chain({
+  id: "encoder", title: "Encoder (ViT-tiny)", perRow: 6,
+  input: { label: "pixels", sub: "512 images" },
+  x0: { shape: [512, 3, 112, 112], names: ["B·T", "C", "H", "W"], kind: "pix", label: "pixels" },
+  introTitle: "Encoder input",
+  intro: "The encoder sees each image alone. All 512 images (128 clips × 4 frames) use the <b>same weights</b>. " +
+    "ViT-tiny: hidden size 192, 12 blocks, 3 attention heads, MLP size 768, patch size 14. Random init (not pretrained).",
+  ops: [
+    { id: "patch", label: "Patch embedding", sub: "Conv2d 14×14, stride 14",
+      shape: [512, 192, 8, 8], names: ["B·T", "D", "8", "8"], kind: "tok", tlabel: "patch features",
+      text: "A convolution with a 14×14 kernel and stride 14 cuts the 112×112 image into an 8×8 grid of patches. Each patch becomes a 192-value vector.",
+      code: "nn.Conv2d(3, 192, kernel_size=14, stride=14)" },
+    { id: "flatten", label: "Flatten patches", sub: "grid → list",
+      shape: [512, 64, 192], names: ["B·T", "patches", "D"], tlabel: "patch tokens",
+      text: "The 8×8 grid becomes a list of 64 tokens.",
+      code: "x = x.flatten(2).transpose(1, 2)" },
+    { id: "cls", label: "Add CLS token", sub: "learned (1, 1, 192)",
+      shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "tokens",
+      text: "A learned CLS token goes in front of the 64 patch tokens. Now there are N = 65 tokens. At the end, only the CLS token is kept.",
+      code: "x = torch.cat([cls_token.expand(512, -1, -1), x], dim=1)" },
+    { id: "pos", label: "+ Position embedding", sub: "learned (1, 65, 192)",
+      shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "tokens",
+      text: "A learned position embedding is added to each token, so the model knows where each patch is in the image.",
+      code: "x = x + position_embeddings" },
+    { id: "blocks", label: "ViT block ×12", sub: "attention + MLP", zoom: "vitblock",
+      shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "tokens",
+      text: "12 transformer blocks, one after the other. Each block first mixes information between the 65 tokens (attention), " +
+        "then changes each token alone (MLP). The shape does not change.",
+      code: "for layer in layers:\n    x = layer(x)" },
+    { id: "ln", label: "Final LayerNorm", sub: "per token",
+      shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "last_hidden_state",
+      text: "The output goes back to the top level. There, token 0 (the CLS token) is taken.",
+      code: "x = layernorm(x)" },
+  ],
+});
+
+chain({
+  id: "vitblock", title: "ViT block (1 of 12)", perRow: 6,
+  input: { label: "x", sub: "tokens" },
+  x0: { shape: [512, 65, 192], names: ["B·T", "N", "D"], kind: "tok", label: "x" },
+  intro: "One encoder block. It uses <b>pre-norm</b>: a LayerNorm comes before attention and before the MLP. " +
+    "Each part adds its result back to x (the dashed arcs are the residual connections).",
+  skips: [["in", "add1"], ["add1", "add2"]],
+  ops: [
+    { id: "ln1", label: "LayerNorm", sub: "layernorm_before", shape: [512, 65, 192], names: ["B·T", "N", "D"],
+      text: "Normalize each token to mean 0 and variance 1, then apply a learned scale and shift.",
+      code: "h = layernorm_before(x)" },
+    { id: "attn", label: "Self-attention", sub: "3 heads × 64", zoom: "vitattn", shape: [512, 65, 192], tlabel: "attn out",
+      text: "Each token looks at all 65 tokens of the same image and takes a weighted mix of them. No mask in the encoder.",
+      code: "h = attention(h)" },
+    { id: "add1", label: "+ residual", sub: "x + attn", shape: [512, 65, 192], tlabel: "x", edges: ["in>add1"],
+      text: "The attention output is added to the block input x.",
+      code: "x = x + h" },
+    { id: "ln2", label: "LayerNorm", sub: "layernorm_after", shape: [512, 65, 192],
+      text: "A second LayerNorm, before the MLP.",
+      code: "h = layernorm_after(x)" },
+    { id: "mlp", label: "MLP", sub: "192 → 768 → 192", zoom: "vitmlp", shape: [512, 65, 192], tlabel: "mlp out",
+      text: "A 2-layer MLP on each token alone. It does not mix tokens.",
+      code: "h = mlp(h)" },
+    { id: "add2", label: "+ residual", sub: "x + mlp", shape: [512, 65, 192], tlabel: "x", edges: ["add1>add2"],
+      text: "The MLP output is added to x. This x goes to the next block.",
+      code: "x = x + h" },
+  ],
+});
+
+chain({
+  id: "vitattn", title: "Encoder self-attention", perRow: 5,
+  input: { label: "h", sub: "normed tokens" },
+  x0: { shape: [512, 65, 192], names: ["B·T", "N", "D"], kind: "tok", label: "h" },
+  intro: "Multi-head self-attention with <b>3 heads</b> of size 64 (3 × 64 = 192). Each image is handled alone: tokens only see tokens of the same image.",
+  ops: [
+    { id: "qkv", label: "q, k, v", sub: "3 × Linear 192→192", shape: [512, 65, 192], names: ["B·T", "N", "D"], mult: 3, tlabel: "q, k, v",
+      text: "Three linear layers make a query, a key and a value vector for each token.",
+      code: "q, k, v = q_proj(h), k_proj(h), v_proj(h)" },
+    { id: "heads", label: "Split heads", sub: "192 = 3 × 64", shape: [512, 3, 65, 64], names: ["B·T", "heads", "N", "64"], mult: 3,
+      text: "The 192 values are cut into 3 heads of 64. Each head does its own attention.",
+      code: "q = q.view(512, 65, 3, 64).transpose(1, 2)   # same for k, v" },
+    { id: "scores", label: "Scores", sub: "q · kᵀ / √64", shape: [512, 3, 65, 65], names: ["B·T", "heads", "N", "N"], mult: 0,
+      kind: "attn", grid: { n: 65 }, tlabel: "scores",
+      text: "For each head: a 65 × 65 table. Row i, column j tells how much token i wants to look at token j.",
+      code: "scores = q @ k.transpose(-2, -1) / 8" },
+    { id: "softmax", label: "Softmax", sub: "over keys (rows sum to 1)", shape: [512, 3, 65, 65], tlabel: "attention weights",
+      text: "Softmax over each row. Now every row is a set of weights that sum to 1.",
+      code: "weights = scores.softmax(dim=-1)" },
+    { id: "mix", label: "× v", sub: "weighted sum of values", shape: [512, 3, 65, 64], names: ["B·T", "heads", "N", "64"],
+      kind: "tok", grid: null, tlabel: "head outputs",
+      text: "Each token gets the weighted sum of the value vectors.",
+      code: "out = weights @ v" },
+    { id: "merge", label: "Merge heads", sub: "3 × 64 → 192", shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "out",
+      text: "The 3 heads are put side by side again.",
+      code: "out = out.transpose(1, 2).reshape(512, 65, 192)" },
+    { id: "oproj", label: "Output projection", sub: "Linear 192→192", shape: [512, 65, 192], tlabel: "attn out",
+      text: "A last linear layer mixes the heads.",
+      code: "out = o_proj(out)" },
+  ],
+});
+
+chain({
+  id: "vitmlp", title: "Encoder MLP", perRow: 5,
+  input: { label: "h", sub: "normed tokens" },
+  x0: { shape: [512, 65, 192], names: ["B·T", "N", "D"], kind: "tok", label: "h" },
+  intro: "The MLP works on each token alone. It does not mix tokens. Hidden size is 4 × 192 = 768.",
+  ops: [
+    { id: "fc1", label: "Linear", sub: "192 → 768", shape: [512, 65, 768], names: ["B·T", "N", "768"],
+      text: "Make each token wider: 192 → 768 values.", code: "h = fc1(h)" },
+    { id: "gelu", label: "GELU", sub: "activation", shape: [512, 65, 768],
+      text: "A smooth non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "fc2", label: "Linear", sub: "768 → 192", shape: [512, 65, 192], names: ["B·T", "N", "D"], tlabel: "mlp out",
+      text: "Back to 192 values per token.", code: "h = fc2(h)" },
+  ],
+});
+
+/* ======================================================================
+   Scene: projector and pred_proj (MLP with BatchNorm)
+   ====================================================================== */
+chain({
+  id: "projector", title: "Projector MLP", perRow: 5,
+  input: { label: "CLS", sub: "one per image" },
+  x0: { shape: [512, 192], names: ["B·T", "D"], kind: "tok", label: "CLS token" },
+  intro: "The projector maps the CLS token to the latent z. Its hidden size is 2048. " +
+    "<b>BatchNorm1d</b> normalizes each of the 2048 features over the 512 vectors of the batch.",
+  ops: [
+    { id: "l1", label: "Linear", sub: "192 → 2048", shape: [512, 2048], names: ["B·T", "2048"], kind: "emb",
+      text: "Make the vector wider.", code: "h = Linear(192, 2048)(x)" },
+    { id: "bn", label: "BatchNorm1d", sub: "2048 features", shape: [512, 2048],
+      text: "For each feature: subtract the batch mean and divide by the batch std, then a learned scale and shift.",
+      code: "h = BatchNorm1d(2048)(h)" },
+    { id: "act", label: "GELU", sub: "activation", shape: [512, 2048],
+      text: "Non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "l2", label: "Linear", sub: "2048 → 192", shape: [512, 192], names: ["B·T", "D"], tlabel: "emb (flat)",
+      text: "Back to 192 values. This is z for each image.", code: "emb = Linear(2048, 192)(h)" },
+  ],
+});
+
+chain({
+  id: "predproj", title: "pred_proj MLP", perRow: 6,
+  input: { label: "preds", sub: "predictor out" },
+  x0: { shape: [128, 3, 192], names: ["B", "T", "D"], kind: "pred", label: "predictor out" },
+  intro: "Same structure as the projector (Linear, BatchNorm1d, GELU, Linear), but its own weights. BatchNorm1d needs a 2-D input, so time goes into the batch first.",
+  ops: [
+    { id: "fl", label: "Flatten", sub: "b t d → (b t) d", shape: [384, 192], names: ["B·T", "D"],
+      text: "128 clips × 3 positions = 384 vectors.", code: 'p = rearrange(preds, "b t d -> (b t) d")' },
+    { id: "l1", label: "Linear", sub: "192 → 2048", shape: [384, 2048], names: ["B·T", "2048"],
+      text: "Make the vector wider.", code: "h = Linear(192, 2048)(p)" },
+    { id: "bn", label: "BatchNorm1d", sub: "2048 features", shape: [384, 2048],
+      text: "Normalize each feature over the 384 vectors.", code: "h = BatchNorm1d(2048)(h)" },
+    { id: "act", label: "GELU", sub: "activation", shape: [384, 2048],
+      text: "Non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "l2", label: "Linear", sub: "2048 → 192", shape: [384, 192], names: ["B·T", "D"],
+      text: "Back to 192 values.", code: "p = Linear(2048, 192)(h)" },
+    { id: "unfl", label: "Unflatten", sub: "(b t) d → b t d", shape: [128, 3, 192], names: ["B", "T", "D"], tlabel: "pred_emb",
+      text: "Split time out again. This is ẑ for frames 1, 2, 3.", code: 'pred_emb = rearrange(p, "(b t) d -> b t d", b=128)' },
+  ],
+});
+
+/* ======================================================================
+   Scene: action encoder (Embedder)
+   ====================================================================== */
+chain({
+  id: "embedder", title: "Action encoder (Embedder)", perRow: 6,
+  input: { label: "action", sub: "10 values" },
+  x0: { shape: [128, 4, 10], names: ["B", "T", "A"], kind: "act", label: "action" },
+  intro: "One action vector holds 5 raw PushT actions (frameskip 5) of 2 values each: <b>A = 10</b>. " +
+    "The Embedder makes it a 192-value vector, so it can condition the predictor.",
+  ops: [
+    { id: "perm", label: "Permute", sub: "for Conv1d", shape: [128, 10, 4], names: ["B", "A", "T"],
+      text: "Conv1d wants channels in the middle, so the axes are swapped.", code: "x = x.permute(0, 2, 1)" },
+    { id: "conv", label: "Conv1d", sub: "kernel 1 · 10 → 10", shape: [128, 10, 4],
+      text: "Kernel size 1: this is a linear layer on each time step alone.", code: "x = Conv1d(10, 10, kernel_size=1)(x)" },
+    { id: "perm2", label: "Permute back", sub: "", shape: [128, 4, 10], names: ["B", "T", "A"],
+      text: "Back to (B, T, A).", code: "x = x.permute(0, 2, 1)" },
+    { id: "l1", label: "Linear", sub: "10 → 768", shape: [128, 4, 768], names: ["B", "T", "768"],
+      text: "Make it wider: 4 × 192 = 768.", code: "x = Linear(10, 768)(x)" },
+    { id: "silu", label: "SiLU", sub: "activation", shape: [128, 4, 768],
+      text: "Non-linear function: x · sigmoid(x).", code: "x = silu(x)" },
+    { id: "l2", label: "Linear", sub: "768 → 192", shape: [128, 4, 192], names: ["B", "T", "D"], tlabel: "act_emb",
+      text: "Final size 192, the same as z.", code: "act_emb = Linear(768, 192)(x)" },
+  ],
+});
+
+/* ======================================================================
+   Scene: predictor (ARPredictor)
+   ====================================================================== */
+SCENES.predictor = {
+  id: "predictor",
+  title: "Predictor (ARPredictor)",
+  nodes: {
+    xin:    { x: 80,  y: 200, w: 110, h: 50, label: "ctx_emb", sub: "z₀ z₁ z₂", kind: "io" },
+    cin:    { x: 80,  y: 520, w: 110, h: 50, label: "ctx_act", sub: "a₀ a₁ a₂", kind: "io" },
+    pos:    { x: 320, y: 200, w: 180, h: 64, label: "+ pos_embedding", sub: "learned (1, 3, 192)", out: "(128, 3, 192)" },
+    blocks: { x: 640, y: 200, w: 200, h: 84, label: "ConditionalBlock ×6", sub: "attention + MLP, AdaLN-zero", zoom: "condblock", out: "(128, 3, 192)" },
+    ln:     { x: 960, y: 200, w: 160, h: 64, label: "LayerNorm", sub: "final norm", out: "(128, 3, 192)" },
+  },
+  edges: [["xin", "pos"], ["pos", "blocks"], ["cin", "blocks", { v: true }], ["blocks", "ln"]],
+  steps: [
+    {
+      title: "Predictor inputs",
+      text: "<b>x</b> = the context latents z₀, z₁, z₂. <b>c</b> = the matching action embeddings. " +
+        "All sizes are 192, so input_proj, cond_proj and output_proj are Identity (no layer).",
+      op: "preds = self.predictor(ctx_emb, ctx_act)",
+      active: ["xin", "cin"],
+      t: {
+        x: { at: "xin", shape: [128, 3, 192], names: ["B", "T", "D"], kind: "emb", label: "x = ctx_emb" },
+        c: { at: "cin", shape: [128, 3, 192], names: ["B", "T", "D"], kind: "act", label: "c = ctx_act" },
+      },
+    },
+    {
+      title: "Add time position",
+      text: "A learned position embedding for the 3 time steps is added. It broadcasts over the batch.",
+      op: "x = x + self.pos_embedding[:, :T]",
+      active: ["pos"], edges: ["xin>pos"],
+      t: {
+        x: { via: "pos", at: "pos", kind: "tok", label: "x" },
+        pe: { from: "pos", at: [320, 40], shape: [1, 3, 192], names: ["1", "T", "D"], kind: "param", label: "pos_embedding" },
+      },
+    },
+    {
+      title: "6 conditional blocks",
+      text: "Six transformer blocks. Each block gets x and also the actions c. " +
+        "The actions control the block through <b>AdaLN-zero</b> (zoom in to see how).",
+      op: "for block in layers:\n    x = block(x, c)",
+      active: ["blocks"], edges: ["pos>blocks", "cin>blocks"], zoom: "blocks",
+      t: {
+        x: { via: "blocks", at: "blocks", label: "x" },
+        c: { gone: "blocks" },
+        pe: null,
+      },
+    },
+    {
+      title: "Final LayerNorm",
+      text: "A last LayerNorm. Position t of the output is the prediction for frame t+1. The result goes to pred_proj.",
+      op: "x = self.norm(x)",
+      active: ["ln"], edges: ["blocks>ln"],
+      t: { x: { via: "ln", at: "ln", kind: "pred", label: "predictor out" } },
+    },
+  ],
+};
+
+/* ======================================================================
+   Scene: ConditionalBlock (AdaLN-zero)
+   ====================================================================== */
+SCENES.condblock = {
+  id: "condblock",
+  title: "ConditionalBlock (1 of 6)",
+  nodes: {
+    xin:   { x: 75,   y: 200, w: 90,  h: 50, label: "x", sub: "tokens", kind: "io" },
+    cin:   { x: 75,   y: 560, w: 90,  h: 50, label: "c", sub: "actions", kind: "io" },
+    ada:   { x: 270,  y: 560, w: 180, h: 64, label: "adaLN_modulation", sub: "SiLU → Linear 192→1152", out: "(128, 3, 1152)" },
+    chunk: { x: 520,  y: 560, w: 150, h: 64, label: "chunk(6)", sub: "shift · scale · gate ×2", out: "6 × (128, 3, 192)" },
+    n1:    { x: 255,  y: 200, w: 150, h: 64, label: "norm1 + modulate", sub: "LN(x)·(1+scale)+shift", out: "(128, 3, 192)" },
+    attn:  { x: 445,  y: 200, w: 150, h: 64, label: "Attention", sub: "causal · 16 heads", zoom: "predattn", out: "(128, 3, 192)" },
+    g1:    { x: 635,  y: 200, w: 150, h: 64, label: "gate + residual", sub: "x + gate·attn", out: "(128, 3, 192)" },
+    n2:    { x: 825,  y: 200, w: 150, h: 64, label: "norm2 + modulate", sub: "LN(x)·(1+scale)+shift", out: "(128, 3, 192)" },
+    ffn:   { x: 1015, y: 200, w: 150, h: 64, label: "FeedForward", sub: "192 → 2048 → 192", zoom: "ffn", out: "(128, 3, 192)" },
+    g2:    { x: 1205, y: 200, w: 150, h: 64, label: "gate + residual", sub: "x + gate·mlp" },
+  },
+  edges: [
+    ["xin", "n1"], ["n1", "attn"], ["attn", "g1"], ["g1", "n2"], ["n2", "ffn"], ["ffn", "g2"],
+    ["cin", "ada"], ["ada", "chunk"],
+    ["chunk", "n1", { v: true }], ["chunk", "g1", { v: true }], ["chunk", "n2", { v: true }], ["chunk", "g2", { v: true }],
+    ["xin", "g1", { skip: true }], ["g1", "g2", { skip: true }],
+  ],
+  steps: [
+    {
+      title: "Block inputs",
+      text: "<b>x</b>: the 3 latent tokens from the previous block. <b>c</b>: the action embeddings. c is the same for all 6 blocks.",
+      op: "x = block(x, c)",
+      active: ["xin", "cin"],
+      t: {
+        x: { at: "xin", shape: [128, 3, 192], names: ["B", "T", "D"], kind: "tok", label: "x" },
+        c: { at: "cin", shape: [128, 3, 192], names: ["B", "T", "D"], kind: "act", label: "c" },
+      },
+    },
+    {
+      title: "Actions → modulation",
+      text: "SiLU, then a linear layer 192 → 6 × 192 = 1152. This happens per time step: each position gets its own values from its own action.",
+      op: "m = self.adaLN_modulation(c)",
+      active: ["ada"], edges: ["cin>ada"],
+      t: { c: { via: "ada", at: "ada", shape: [128, 3, 1152], names: ["B", "T", "6·D"], kind: "mod", label: "modulation" } },
+    },
+    {
+      title: "Six modulation tensors",
+      text: "Split into 6 parts: shift, scale and gate for attention, and shift, scale and gate for the MLP. " +
+        "<b>Zero init</b>: the last linear layer starts at 0, so all gates are 0 and the block starts as the identity.",
+      op: "shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = m.chunk(6, dim=-1)",
+      active: ["chunk"], edges: ["ada>chunk"],
+      t: { c: { via: "chunk", at: "chunk", shape: [128, 3, 192], names: ["B", "T", "D"], mult: 6, label: "shift · scale · gate ×2" } },
+    },
+    {
+      title: "Norm + modulate (attention)",
+      text: "LayerNorm without learned weights, then the action sets the scale and shift of each feature.",
+      op: "h = modulate(self.norm1(x), shift_msa, scale_msa)\n# = norm1(x) * (1 + scale_msa) + shift_msa",
+      active: ["n1"], edges: ["xin>n1", "chunk>n1"],
+      t: { x: { via: "n1", at: "n1", label: "h" } },
+    },
+    {
+      title: "Causal self-attention",
+      text: "16 heads of size 64 (inner size 1024). Causal mask: position t only looks at positions 0…t.",
+      op: "h = self.attn(h)",
+      active: ["attn"], edges: ["n1>attn"], zoom: "attn",
+      t: { x: { via: "attn", at: "attn", label: "attn out" } },
+    },
+    {
+      title: "Gate + residual",
+      text: "The attention output is multiplied by the gate from the action, then added to x.",
+      op: "x = x + gate_msa * h",
+      active: ["g1"], edges: ["attn>g1", "chunk>g1", "xin>g1"],
+      t: { x: { via: "g1", at: "g1", label: "x" } },
+    },
+    {
+      title: "Norm + modulate (MLP)",
+      text: "Same as before, with the MLP shift and scale.",
+      op: "h = modulate(self.norm2(x), shift_mlp, scale_mlp)",
+      active: ["n2"], edges: ["g1>n2", "chunk>n2"],
+      t: { x: { via: "n2", at: "n2", label: "h" } },
+    },
+    {
+      title: "FeedForward",
+      text: "MLP on each time step alone: LayerNorm, 192 → 2048, GELU, 2048 → 192, with dropout 0.1.",
+      op: "h = self.mlp(h)",
+      active: ["ffn"], edges: ["n2>ffn"], zoom: "ffn",
+      t: { x: { via: "ffn", at: "ffn", label: "mlp out" } },
+    },
+    {
+      title: "Gate + residual",
+      text: "Multiply by the MLP gate and add to x. This x goes to the next block.",
+      op: "x = x + gate_mlp * h",
+      active: ["g2"], edges: ["ffn>g2", "chunk>g2", "g1>g2"],
+      t: { x: { via: "g2", at: "g2", label: "x" } },
+    },
+  ],
+};
+
+chain({
+  id: "predattn", title: "Predictor attention (causal)", perRow: 5,
+  input: { label: "h", sub: "modulated x" },
+  x0: { shape: [128, 3, 192], names: ["B", "T", "D"], kind: "tok", label: "h" },
+  intro: "Attention over the <b>3 time steps</b> of one clip. 16 heads × 64 = 1024, which is wider than D = 192. Dropout 0.1 during training.",
+  ops: [
+    { id: "norm", label: "LayerNorm", sub: "attn.norm", shape: [128, 3, 192],
+      text: "The Attention module has its own LayerNorm (with learned weights).", code: "h = self.norm(h)" },
+    { id: "qkv", label: "to_qkv", sub: "Linear 192 → 3072", shape: [128, 3, 3072], names: ["B", "T", "3·1024"],
+      text: "One linear layer (no bias) makes q, k and v together: 3 × 1024 = 3072.", code: "qkv = self.to_qkv(h)" },
+    { id: "chunk", label: "chunk(3)", sub: "q, k, v", shape: [128, 3, 1024], names: ["B", "T", "1024"], mult: 3, tlabel: "q, k, v",
+      text: "Cut into q, k and v.", code: "q, k, v = qkv.chunk(3, dim=-1)" },
+    { id: "heads", label: "Split heads", sub: "1024 = 16 × 64", shape: [128, 16, 3, 64], names: ["B", "heads", "T", "64"],
+      text: "16 heads of size 64.", code: 'q = rearrange(q, "b t (h d) -> b h t d", h=16)   # same for k, v' },
+    { id: "scores", label: "Causal scores", sub: "q · kᵀ / 8 + mask", shape: [128, 16, 3, 3], names: ["B", "heads", "T", "T"], mult: 0,
+      kind: "attn", grid: { n: 3, causal: true }, tlabel: "scores",
+      text: "A 3 × 3 table per head. The <b>causal mask</b> blocks the upper part: position t cannot look at future positions. " +
+        "So the prediction at t uses only frames 0…t.",
+      code: "F.scaled_dot_product_attention(q, k, v, is_causal=True)\n# inside: scores = q @ kᵀ / 8, masked above the diagonal" },
+    { id: "softmax", label: "Softmax", sub: "masked → weight 0", shape: [128, 16, 3, 3], tlabel: "attention weights",
+      text: "Softmax over each row. Masked places get weight 0. Row 0 can only look at itself.",
+      code: "weights = scores.softmax(dim=-1)   # + dropout 0.1" },
+    { id: "mix", label: "× v", sub: "weighted sum", shape: [128, 16, 3, 64], names: ["B", "heads", "T", "64"], kind: "tok", grid: null,
+      tlabel: "head outputs", text: "Weighted sum of the value vectors.", code: "out = weights @ v" },
+    { id: "merge", label: "Merge heads", sub: "16 × 64 → 1024", shape: [128, 3, 1024], names: ["B", "T", "1024"], tlabel: "out",
+      text: "Heads side by side again.", code: 'out = rearrange(out, "b h t d -> b t (h d)")' },
+    { id: "out", label: "to_out", sub: "Linear 1024→192 + Dropout", shape: [128, 3, 192], names: ["B", "T", "D"], tlabel: "attn out",
+      text: "Back to 192 values per time step.", code: "out = self.to_out(out)" },
+  ],
+});
+
+chain({
+  id: "ffn", title: "Predictor FeedForward", perRow: 6,
+  input: { label: "h", sub: "modulated x" },
+  x0: { shape: [128, 3, 192], names: ["B", "T", "D"], kind: "tok", label: "h" },
+  intro: "The FeedForward of a ConditionalBlock. It works on each time step alone. Hidden size 2048.",
+  ops: [
+    { id: "ln", label: "LayerNorm", sub: "learned", shape: [128, 3, 192], text: "Its own LayerNorm, with learned weights.", code: "h = LayerNorm(192)(h)" },
+    { id: "l1", label: "Linear", sub: "192 → 2048", shape: [128, 3, 2048], names: ["B", "T", "2048"], text: "Make it wider.", code: "h = Linear(192, 2048)(h)" },
+    { id: "gelu", label: "GELU", sub: "activation", shape: [128, 3, 2048], text: "Non-linear function on each value.", code: "h = gelu(h)" },
+    { id: "d1", label: "Dropout", sub: "p = 0.1", shape: [128, 3, 2048], text: "During training, 10% of the values are set to 0 at random.", code: "h = Dropout(0.1)(h)" },
+    { id: "l2", label: "Linear", sub: "2048 → 192", shape: [128, 3, 192], names: ["B", "T", "D"], text: "Back to 192.", code: "h = Linear(2048, 192)(h)" },
+    { id: "d2", label: "Dropout", sub: "p = 0.1", shape: [128, 3, 192], tlabel: "mlp out", text: "Dropout again.", code: "h = Dropout(0.1)(h)" },
+  ],
+});
+
+/* ======================================================================
+   Scene: SIGReg
+   ====================================================================== */
+chain({
+  id: "sigreg", title: "SIGReg", perRow: 4,
+  input: { label: "emb", sub: "all 4 frames" },
+  x0: { shape: [128, 4, 192], names: ["B", "T", "D"], kind: "emb", label: "emb" },
+  intro: "SIGReg (Sketched Isotropic Gaussian Regularizer) wants the 192-value embeddings to look like a <b>standard Gaussian</b>. " +
+    "It tests this along <b>1024 random 1-D directions</b>, with new directions on each call. It uses all 4 frames, not only the context.",
+  ops: [
+    { id: "tr", label: "Transpose", sub: "time first", shape: [4, 128, 192], names: ["T", "B", "D"],
+      text: "Time goes first. Each of the 4 time steps is tested on its own, over the 128 samples of the batch.",
+      code: "proj = emb.transpose(0, 1)" },
+    { id: "proj", label: "Projections", sub: "x @ A, A: (192, 1024)", shape: [4, 128, 1024], names: ["T", "B", "M"],
+      text: "A is a new random (192, 1024) matrix. Each column has length 1. Each sample becomes 1024 numbers: its position along each direction.",
+      code: "A = torch.randn(192, 1024); A /= A.norm(dim=0)\nx = proj @ A" },
+    { id: "knots", label: "× knots t", sub: "17 points in [0, 3]", shape: [4, 128, 1024, 17], names: ["T", "B", "M", "K"],
+      text: "Multiply each number by 17 values of t from 0 to 3.",
+      code: "x_t = x.unsqueeze(-1) * t   # t = linspace(0, 3, 17)" },
+    { id: "ecf", label: "Empirical CF", sub: "mean over B of cos, sin", shape: [4, 1024, 17], names: ["T", "M", "K"], mult: 2, tlabel: "cos mean, sin mean",
+      text: "Mean over the 128 samples of cos(t·x) and sin(t·x). This is the empirical characteristic function (real and imaginary part).",
+      code: "re = x_t.cos().mean(-3)\nim = x_t.sin().mean(-3)" },
+    { id: "err", label: "Compare to N(0, 1)", sub: "(re − e^(−t²/2))² + im²", shape: [4, 1024, 17], mult: 0, tlabel: "err",
+      text: "For a standard Gaussian the characteristic function is e^(−t²/2) and the imaginary part is 0. err measures the distance.",
+      code: "err = (re - phi).square() + im.square()   # phi = exp(-t²/2)" },
+    { id: "int", label: "Integrate over t", sub: "weights · window · B", shape: [4, 1024], names: ["T", "M"],
+      text: "Weighted sum over the 17 knots (trapezoid weights × e^(−t²/2)), then × 128. This is the <b>Epps–Pulley</b> test statistic. Large value = not Gaussian.",
+      code: "statistic = (err @ weights) * 128" },
+    { id: "mean", label: "Mean", sub: "over T and directions", shape: [], names: [], kind: "loss", tlabel: "sigreg_loss",
+      text: "Average over the 4 time steps and 1024 directions. One number.",
+      code: "sigreg_loss = statistic.mean()" },
+  ],
+});
+
+/* ======================================================================
+   Rendering
+   ====================================================================== */
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), sceneEl = $("scene"), wrap = $("stage-wrap");
+const nodeLayer = $("node-layer"), edgeLayer = $("edge-layer"), tensorLayer = $("tensor-layer");
+const KIND_COLOR = (k) => `var(--k-${k || "tok"})`;
+
+const stack = [{ id: "top", i: 0 }];
+let els = {};          // tensor id -> element
+let nodeEls = {};      // node id -> element
+let edgeEls = {};      // edge key -> path
+let timers = [];
+let playTimer = null;
+
+function cur() { const f = stack[stack.length - 1]; return { f, scene: SCENES[f.id], i: f.i }; }
+
+function fit() {
+  const s = wrap.clientWidth / W;
+  stage.style.transform = `scale(${s})`;
+  wrap.style.height = H * s + "px";
+}
+
+function route(a, b, opt) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (opt && opt.skip) {
+    const top = Math.min(a.y - a.h / 2, b.y - b.h / 2) - 62;
+    const sx = a.x + 8, ex = b.x - 8;
+    return `M${sx},${a.y - a.h / 2} C${sx},${top} ${ex},${top} ${ex},${b.y - b.h / 2}`;
+  }
+  const horiz = !(opt && opt.v) && Math.abs(dx) > (a.w + b.w) / 2;
+  if (horiz) {
+    const s = Math.sign(dx), sx = a.x + s * a.w / 2, ex = b.x - s * b.w / 2;
+    if (Math.abs(dy) < 4) return `M${sx},${a.y} L${ex},${b.y}`;
+    const mx = opt && opt.mx ? opt.mx : (sx + ex) / 2;
+    return `M${sx},${a.y} L${mx},${a.y} L${mx},${b.y} L${ex},${b.y}`;
+  }
+  const s = Math.sign(dy) || 1, sy = a.y + s * a.h / 2, ey = b.y - s * b.h / 2;
+  if (Math.abs(dx) < 4) return `M${a.x},${sy} L${b.x},${ey}`;
+  const my = (sy + ey) / 2;
+  return `M${a.x},${sy} L${a.x},${my} L${b.x},${my} L${b.x},${ey}`;
+}
+
+function buildScene() {
+  const { scene } = cur();
+  nodeLayer.innerHTML = ""; edgeLayer.innerHTML = ""; tensorLayer.innerHTML = "";
+  els = {}; nodeEls = {}; edgeEls = {};
+  timers.forEach(clearTimeout); timers = [];
+  $("scene-title").textContent = scene.title;
+  for (const [a, b, opt] of scene.edges) {
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", route(scene.nodes[a], scene.nodes[b], opt));
+    p.setAttribute("class", "edge" + (opt && opt.skip ? " skip" : ""));
+    edgeLayer.appendChild(p);
+    edgeEls[a + ">" + b] = p;
+  }
+  for (const id in scene.nodes) {
+    const n = scene.nodes[id];
+    const el = document.createElement("div");
+    el.className = "node" + (n.kind === "io" ? " io" : "") + (n.zoom ? " zoomable" : "");
+    Object.assign(el.style, { left: n.x - n.w / 2 + "px", top: n.y - n.h / 2 + "px", width: n.w + "px", height: n.h + "px" });
+    el.innerHTML = `<div class="n-label">${n.label}</div>` + (n.sub ? `<div class="n-sub">${n.sub}</div>` : "") +
+      (n.zoom ? `<div class="zoom" title="Zoom in">+</div>` : "") +
+      (n.out ? `<div class="n-out">→ ${n.out}</div>` : "");
+    if (n.zoom) {
+      el.title = "Click to see inside";
+      el.addEventListener("click", () => zoomIn(id));
+    }
+    nodeLayer.appendChild(el);
+    nodeEls[id] = el;
+  }
+}
+
+function computeState(scene, i) {
+  const st = {};
+  for (let k = 0; k <= i; k++) {
+    for (const id in st) if (st[id].gone) delete st[id];
+    const t = scene.steps[k].t || {};
+    for (const id in t) {
+      const p = t[id];
+      if (p === null) { delete st[id]; continue; }
+      if (p.gone) { if (st[id]) st[id] = Object.assign({}, st[id], { gone: p.gone, step: k }); continue; }
+      const prev = st[id] || {};
+      const next = Object.assign({}, prev, p, { step: k });
+      if (!("via" in p)) delete next.via;
+      if (!("from" in p)) delete next.from;
+      if (!("dx" in p) && Array.isArray(p.at)) delete next.dx;
+      st[id] = next;
+    }
+  }
+  return st;
+}
+
+function centerOf(scene, nodeId) {
+  const n = scene.nodes[nodeId];
+  return { x: n.x, y: n.y - 30 };
+}
+
+function resolvePos(scene, sp) {
+  if (sp.gone) return centerOf(scene, sp.gone);
+  if (Array.isArray(sp.at)) return { x: sp.at[0], y: sp.at[1] };
+  const n = scene.nodes[sp.at];
+  return { x: n.x + (sp.dx || 0), y: n.y + n.h / 2 + 12 + (sp.dy || 0) };
+}
+
+function size(n) { return Math.round(10 + 8.5 * Math.log2(Math.max(n, 1))); }
+
+function fillTensor(el, sp) {
+  const shape = sp.shape || [];
+  el.style.setProperty("--c", KIND_COLOR(sp.kind));
+  let gfx = el.querySelector(".t-gfx");
+  if (!gfx) {
+    el.innerHTML = `<div class="t-name"></div><div class="t-gfx"></div><div class="t-shape"></div><div class="t-dims"></div>`;
+    gfx = el.querySelector(".t-gfx");
+  }
+  el.querySelector(".t-name").textContent = sp.label || "";
+  const rank = shape.length;
+  let w, h, layers = 1, off = 0, inner = "";
+  gfx.classList.toggle("scalar", rank === 0);
+  if (sp.grid) {
+    const cells = Math.min(sp.grid.n, 13);
+    w = h = sp.grid.n <= 4 ? cells * 16 : 66;
+    layers = rank >= 3 ? 3 : 1; off = layers > 1 ? 5 : 0;
+    let c = "";
+    for (let r = 0; r < cells; r++) for (let q = 0; q < cells; q++) {
+      const masked = sp.grid.causal && q > r;
+      const v = masked ? 0 : 0.18 + 0.82 * Math.abs(Math.sin(r * 12.9898 + q * 78.233 + cells) * 43758.5453 % 1);
+      c += masked ? `<i class="m"></i>` : `<i style="opacity:${v.toFixed(2)}"></i>`;
+    }
+    inner = `<div class="t-grid" style="grid-template-columns:repeat(${cells},1fr);left:0;bottom:0;width:calc(100% - ${2 * off}px);height:calc(100% - ${2 * off}px)">${c}</div>`;
+  } else if (rank === 0) {
+    w = h = 20;
+  } else if (rank === 1) {
+    w = size(shape[0]); h = 10;
+  } else {
+    w = size(shape[rank - 1]); h = Math.round(size(shape[rank - 2]) * 0.72);
+    if (rank >= 3 || sp.mult) { layers = 3; off = 5; }
+  }
+  gfx.style.width = w + 2 * off + "px";
+  gfx.style.height = h + 2 * off + "px";
+  let html = "";
+  for (let k = layers - 1; k >= 0; k--) {
+    if (sp.grid && k === 0) continue;
+    const alpha = [0.85, 0.5, 0.3][k];
+    const tint = sp.mult && k > 0 ? "filter:hue-rotate(" + k * 35 + "deg);" : "";
+    html += `<div class="t-layer" style="left:${k * off}px;bottom:${k * off}px;width:calc(100% - ${2 * off}px);height:calc(100% - ${2 * off}px);opacity:${alpha};${tint}"></div>`;
+  }
+  gfx.innerHTML = html + inner;
+  const shapeTxt = rank === 0 ? "() scalar" : "(" + shape.join(", ") + ")";
+  el.querySelector(".t-shape").innerHTML = shapeTxt + (sp.mult ? `<span class="t-mult">×${sp.mult}</span>` : "");
+  el.querySelector(".t-dims").textContent = (sp.names || []).join(" · ");
+}
+
+function place(el, p, opacity, instant) {
+  if (instant) el.classList.add("noanim");
+  el.style.left = p.x + "px";
+  el.style.top = p.y + "px";
+  el.style.opacity = opacity === undefined ? "" : opacity;
+  if (instant) { void el.offsetWidth; el.classList.remove("noanim"); }
+}
+
+function pulse(nodeId) {
+  const el = nodeEls[nodeId];
+  if (!el) return;
+  el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
+}
+
+function render(dir) {
+  timers.forEach(clearTimeout); timers = [];
+  const { scene, i } = cur();
+  const step = scene.steps[i];
+  const st = computeState(scene, i);
+
+  // nodes
+  const active = new Set(step.active || []);
+  const done = new Set();
+  scene.steps.slice(0, i).forEach((s) => (s.active || []).forEach((a) => done.add(a)));
+  for (const id in nodeEls) {
+    nodeEls[id].classList.toggle("active", active.has(id));
+    nodeEls[id].classList.toggle("done", !active.has(id) && done.has(id));
+  }
+
+  // edges
+  const actE = new Set(step.edges || []);
+  const doneE = new Set();
+  scene.steps.slice(0, i).forEach((s) => (s.edges || []).forEach((e) => doneE.add(e)));
+  for (const k in edgeEls) {
+    const p = edgeEls[k];
+    p.classList.toggle("active", actE.has(k));
+    p.classList.toggle("done", !actE.has(k) && doneE.has(k));
+    p.setAttribute("marker-end", actE.has(k) ? "url(#arr-a)" : "url(#arr)");
+  }
+  // draw active edges on top
+  actE.forEach((k) => { if (edgeEls[k]) edgeLayer.appendChild(edgeEls[k]); });
+
+  // tensors
+  for (const id in st) {
+    const sp = st[id];
+    const fresh = sp.step === i;
+    const pos = resolvePos(scene, sp);
+    const op = sp.gone ? 0 : undefined;
+    let el = els[id];
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "tensor";
+      tensorLayer.appendChild(el);
+      els[id] = el;
+      fillTensor(el, sp);
+      const start = fresh && sp.from && dir === 1 ? centerOf(scene, sp.from) : pos;
+      place(el, start, 0, true);
+      if (fresh && sp.from && dir === 1) pulse(sp.from);
+      requestAnimationFrame(() => requestAnimationFrame(() => place(el, pos, op)));
+    } else if (dir === 1 && fresh && sp.via && !sp.gone) {
+      place(el, centerOf(scene, sp.via), 1);
+      timers.push(setTimeout(() => { pulse(sp.via); fillTensor(el, sp); place(el, pos, op); }, 600));
+    } else {
+      fillTensor(el, sp);
+      place(el, pos, op);
+      if (sp.gone && fresh && dir === 1) timers.push(setTimeout(() => pulse(sp.gone), 450));
+    }
+    el.classList.toggle("hot", fresh && !sp.gone);
+  }
+  for (const id in els) {
+    if (!(id in st)) {
+      const el = els[id];
+      delete els[id];
+      el.style.opacity = 0;
+      setTimeout(() => el.remove(), 600);
+    }
+  }
+
+  renderPanel(scene, i, step, st);
+  renderChrome(scene, i);
+  try { history.replaceState(null, "", "#" + stack.map((f) => f.id + "." + (f.i + 1)).join("/")); } catch (e) { /* file:// may block */ }
+}
+
+/* Read "#top.9/predictor.3" (1-based steps) into the zoom stack. */
+function loadHash() {
+  const parts = decodeURIComponent(location.hash.slice(1)).split("/").filter(Boolean);
+  const out = [];
+  for (const p of parts) {
+    const [id, num] = p.split(".");
+    const scene = SCENES[id];
+    if (!scene || (out.length === 0 && id !== "top")) break;
+    if (out.length) {
+      const parent = SCENES[out[out.length - 1].id];
+      const from = Object.keys(parent.nodes).find((k) => parent.nodes[k].zoom === id);
+      if (!from) break;
+      out[out.length] = { id, from };
+    } else out.push({ id });
+    const f = out[out.length - 1];
+    f.i = Math.min(Math.max((parseInt(num, 10) || 1) - 1, 0), scene.steps.length - 1);
+  }
+  if (out.length) { stack.length = 0; stack.push(...out); }
+}
+
+function stepZoomNode(scene, step) {
+  if (step.zoom) return step.zoom;
+  const z = (step.active || []).filter((a) => scene.nodes[a] && scene.nodes[a].zoom);
+  return z.length === 1 ? z[0] : null;
+}
+
+function renderPanel(scene, i, step, st) {
+  const n = scene.steps.length;
+  let html = `<div class="p-step">Step ${i + 1} of ${n} · ${scene.title}</div><h2>${step.title}</h2>`;
+  if (step.text) html += `<p class="p-text">${step.text}</p>`;
+  if (step.op) html += `<pre class="p-op">${escapeHtml(step.op)}</pre>`;
+  const rows = [];
+  for (const id in st) {
+    const sp = st[id];
+    if (sp.step !== i) continue;
+    const shape = (sp.shape || []).length ? "(" + sp.shape.join(", ") + ")" : "() scalar";
+    if (sp.gone) {
+      rows.push(`<div class="p-t" style="--c:${KIND_COLOR(sp.kind)}"><span class="dot"></span><span class="nm">${sp.label}</span><span class="gone">used by ${scene.nodes[sp.gone].label}</span></div>`);
+    } else {
+      rows.push(`<div class="p-t" style="--c:${KIND_COLOR(sp.kind)}"><span class="dot"></span><span class="nm">${sp.label}</span>` +
+        `<span class="sh">${shape}${sp.mult ? " ×" + sp.mult : ""}</span></div>`);
+    }
+  }
+  if (rows.length) html += `<div class="p-tensors">${rows.join("")}</div>`;
+  const z = stepZoomNode(scene, step);
+  if (z) {
+    html += `<div class="callout">This step has inner steps. You can zoom in, or press <kbd>→</kbd> to go on.<br>` +
+      `<button class="btn" id="p-zoom">Zoom into ${scene.nodes[z].label} <kbd>Enter</kbd></button></div>`;
+  }
+  if (i === n - 1 && stack.length > 1) {
+    const parent = SCENES[stack[stack.length - 2].id];
+    html += `<div class="callout end">End of ${scene.title}. Press <kbd>→</kbd> to go back to <b>${parent.title}</b>.</div>`;
+  }
+  html += `<div class="legend"><h3>Sizes</h3><table>
+    <tr><td>B</td><td>batch: 128 clips</td></tr>
+    <tr><td>T</td><td>frames per clip: 4 (3 context + 1 to predict)</td></tr>
+    <tr><td>D</td><td>latent size: 192</td></tr>
+    <tr><td>N</td><td>ViT tokens: 65 (64 patches + CLS)</td></tr>
+    <tr><td>A</td><td>action: 10 (5 steps × 2)</td></tr>
+    <tr><td>M, K</td><td>SIGReg: 1024 directions, 17 knots</td></tr>
+  </table>
+  <div class="keys"><kbd>←</kbd> <kbd>→</kbd> step · <kbd>Space</kbd> play · <kbd>Home</kbd> reset · <kbd>Enter</kbd> zoom in · <kbd>Esc</kbd> zoom out</div></div>`;
+  $("panel").innerHTML = html;
+  const zb = $("p-zoom");
+  if (zb) zb.addEventListener("click", () => zoomIn(z));
+}
+
+function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function renderChrome(scene, i) {
+  const n = scene.steps.length;
+  const slider = $("slider");
+  slider.max = n - 1; slider.value = i;
+  $("counter").textContent = `${i + 1} / ${n}`;
+  $("b-prev").disabled = i === 0 && stack.length === 1;
+  $("b-next").disabled = i === n - 1 && stack.length === 1;
+  $("b-out").disabled = stack.length === 1;
+  $("b-reset").disabled = stack.length === 1 && i === 0;
+  const crumbs = $("crumbs");
+  crumbs.innerHTML = "";
+  stack.forEach((f, k) => {
+    if (k) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "›"; crumbs.appendChild(s); }
+    const b = document.createElement("button");
+    b.textContent = SCENES[f.id].title;
+    if (k === stack.length - 1) b.className = "here";
+    else b.addEventListener("click", () => popTo(k));
+    crumbs.appendChild(b);
+  });
+}
+
+/* ======================================================================
+   Navigation
+   ====================================================================== */
+function animateScene(cls, origin) {
+  sceneEl.style.transformOrigin = origin ? `${origin.x}px ${origin.y}px` : "50% 50%";
+  sceneEl.classList.remove("anim-in", "anim-out");
+  void sceneEl.offsetWidth;
+  sceneEl.classList.add(cls);
+}
+
+function next() {
+  const { f, scene, i } = cur();
+  if (i < scene.steps.length - 1) { f.i++; render(1); }
+  else if (stack.length > 1) popTo(stack.length - 2);
+  else stopPlay();
+}
+
+function prev() {
+  const { f, i } = cur();
+  if (i > 0) { f.i--; render(-1); }
+  else if (stack.length > 1) popTo(stack.length - 2);
+}
+
+function zoomIn(nodeId) {
+  const { scene } = cur();
+  const n = scene.nodes[nodeId];
+  if (!n || !n.zoom) return;
+  stack.push({ id: n.zoom, i: 0, from: nodeId });
+  buildScene();
+  animateScene("anim-in", { x: n.x, y: n.y });
+  render(1);
+}
+
+function popTo(k) {
+  if (k >= stack.length - 1) return;
+  const from = stack[k + 1].from;
+  stack.length = k + 1;
+  const n = cur().scene.nodes[from];
+  buildScene();
+  animateScene("anim-out", n ? { x: n.x, y: n.y } : null);
+  render(0);
+}
+
+/* Stop playing, leave all zoom levels and go to step 1 of the training step. */
+function reset() {
+  stopPlay();
+  const zoomed = stack.length > 1;
+  const from = zoomed ? stack[1].from : null;
+  stack.length = 1;
+  stack[0].i = 0;
+  buildScene();
+  if (zoomed) animateScene("anim-out", SCENES.top.nodes[from]);
+  render(0);
+}
+
+function togglePlay() { playTimer ? stopPlay() : startPlay(); }
+function startPlay() {
+  playTimer = setInterval(next, 2600);
+  $("b-play").textContent = "❚❚ Pause";
+  next();
+}
+function stopPlay() {
+  clearInterval(playTimer); playTimer = null;
+  $("b-play").textContent = "▶ Play";
+}
+
+$("b-next").addEventListener("click", next);
+$("b-reset").addEventListener("click", reset);
+$("b-prev").addEventListener("click", prev);
+$("b-play").addEventListener("click", togglePlay);
+$("b-out").addEventListener("click", () => popTo(stack.length - 2));
+$("slider").addEventListener("input", (e) => {
+  const { f } = cur();
+  const v = +e.target.value;
+  const dir = v === f.i + 1 ? 1 : 0;
+  f.i = v; render(dir);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.key !== "Escape" && e.key !== " ") return;
+  if (e.key === "ArrowRight") { e.preventDefault(); next(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); prev(); }
+  else if (e.key === "Home") { e.preventDefault(); reset(); }
+  else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "Enter") {
+    const { scene, i } = cur();
+    const z = stepZoomNode(scene, scene.steps[i]);
+    if (z) { e.preventDefault(); zoomIn(z); }
+  } else if (e.key === "Escape") { popTo(stack.length - 2); }
+});
+window.addEventListener("resize", fit);
+
+loadHash();
+fit();
+buildScene();
+render(0);
+</script>
+</body>
+</html>

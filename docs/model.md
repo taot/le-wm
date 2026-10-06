@@ -7,6 +7,8 @@ Config: [`config/train/lewm.yaml`](../config/train/lewm.yaml), [`config/train/mo
 
 ## Training
 
+To step through one training step with tensor shapes, open [`docs/viz/lewm_training.html`](viz/lewm_training.html) in a browser. [`docs/viz/trace_shapes.py`](viz/trace_shapes.py) prints the real shapes it is based on.
+
 ```mermaid
 flowchart TB
     A["Actions a₀ … a₂<br/>(10-d each)"] --> AE["Action embedder<br/>Conv1d + MLP"]
