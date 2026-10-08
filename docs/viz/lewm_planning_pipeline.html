@@ -1,0 +1,1516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeWM Planning Pipeline</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #1d2433;
+  --muted: #667085;
+  --line: #d0d5dd;
+  --line-soft: #e4e7ec;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+  --k-pix: #3b82f6;
+  --k-tok: #6366f1;
+  --k-emb: #0d9488;
+  --k-act: #d97706;
+  --k-attn: #9333ea;
+  --k-pred: #db2777;
+  --k-loss: #dc2626;
+  --k-param: #64748b;
+  --k-mod: #ea580c;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button { font: inherit; }
+
+/* ---------- header ---------- */
+header { position: sticky; top: 0; z-index: 10; background: var(--card);
+  border-bottom: 1px solid var(--line-soft); padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 500; }
+#crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1 1 260px; min-width: 0; }
+#crumbs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; color: var(--accent); cursor: pointer; }
+#crumbs button:hover { background: var(--accent-soft); }
+#crumbs .here { color: var(--ink); font-weight: 600; cursor: default; }
+#crumbs .here:hover { background: none; }
+#crumbs .sep { color: var(--muted); }
+.controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  padding: 5px 11px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
+#slider { width: 140px; accent-color: var(--accent); }
+#counter { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 64px; text-align: right; }
+
+/* ---------- layout ---------- */
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; align-items: start; }
+@media (max-width: 960px) { main { grid-template-columns: minmax(0, 1fr); } }
+#stage-wrap { background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; position: relative; }
+#stage { position: absolute; left: 0; top: 0; width: 1300px; height: 760px; transform-origin: 0 0; }
+#scene { position: absolute; inset: 0;
+  background-image: radial-gradient(circle, #e6e9ef 1px, transparent 1.2px); background-size: 22px 22px; }
+#scene.anim-in { animation: zin 0.55s cubic-bezier(.2,.7,.2,1); }
+#scene.anim-out { animation: zout 0.5s cubic-bezier(.2,.7,.2,1); }
+@keyframes zin { from { transform: scale(0.25); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes zout { from { transform: scale(2.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+#scene-title { position: absolute; left: 22px; top: 14px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+svg#edges { position: absolute; inset: 0; width: 1300px; height: 760px; overflow: visible; }
+.edge { fill: none; stroke: #c3c9d4; stroke-width: 1.6; }
+.edge.done { stroke: #8a94a6; }
+.edge.active { stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: 7 6; animation: flow 0.7s linear infinite; }
+.edge.skip { stroke-dasharray: 3 4; }
+.edge.skip.active { stroke-dasharray: 7 6; }
+@keyframes flow { to { stroke-dashoffset: -13; } }
+
+/* ---------- nodes ---------- */
+.node { position: absolute; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+  padding: 4px 8px; transition: border-color .3s, box-shadow .3s, background .3s, opacity .3s; user-select: none; }
+.node .n-label { font-weight: 600; font-size: 14px; line-height: 1.2; }
+.node .n-sub { font-size: 11.5px; color: var(--muted); line-height: 1.25; margin-top: 2px; }
+.node.io { background: #eef1f5; border-style: dashed; }
+.node.done { border-color: #98a2b3; }
+.node.active { border-color: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft); }
+.node.zoomable { cursor: pointer; }
+.node.zoomable:hover { border-color: var(--accent); }
+.node .zoom { position: absolute; top: -9px; right: -9px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 15px; line-height: 19px; text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.node.pulse { animation: pulse 0.65s ease; }
+.node .n-out { display: none; position: absolute; bottom: -9px; right: 8px; background: #fff; border: 1px solid var(--line);
+  border-radius: 5px; padding: 0 5px; font-family: var(--mono); font-size: 10.5px; line-height: 16px; color: var(--muted); white-space: nowrap; }
+.node.done .n-out { display: block; }
+@keyframes pulse { 40% { background: #e0e9ff; transform: scale(1.06); } }
+
+/* ---------- tensors ---------- */
+.tensor { position: absolute; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+  padding: 3px 7px 4px; border-radius: 8px; background: rgba(255,255,255,0.88); pointer-events: none;
+  transition: left .65s cubic-bezier(.4,0,.2,1), top .65s cubic-bezier(.4,0,.2,1), opacity .5s; white-space: nowrap;
+  opacity: 0.72; }
+.tensor.hot { opacity: 1; box-shadow: 0 0 0 1.5px var(--c), 0 4px 14px rgba(0,0,0,0.08); }
+.tensor.noanim, .tensor.noanim * { transition: none !important; }
+.t-name { font-size: 12px; font-weight: 600; color: var(--c); margin-bottom: 3px; }
+.t-gfx { position: relative; transition: width .5s, height .5s; }
+.t-layer { position: absolute; border-radius: 3px; background: var(--c); border: 1px solid rgba(0,0,0,0.12); }
+.t-gfx.scalar .t-layer { border-radius: 50%; }
+.t-grid { position: absolute; inset: 0; display: grid; gap: 1px; background: #fff; border: 1px solid rgba(0,0,0,.15); border-radius: 3px; overflow: hidden; }
+.t-grid i { background: var(--c); }
+.t-grid i.m { background: repeating-linear-gradient(45deg, #e4e7ec 0 3px, #f6f7f9 3px 6px); }
+.t-shape { font-family: var(--mono); font-size: 12.5px; margin-top: 4px; color: var(--ink); }
+.t-mult { font-family: var(--mono); font-size: 11px; color: #fff; background: var(--c); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.t-dims { font-size: 11px; color: var(--muted); }
+
+/* ---------- panel ---------- */
+#panel { background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; padding: 16px 18px; }
+.p-step { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+#panel h2 { font-size: 19px; margin: 4px 0 10px; letter-spacing: -0.01em; }
+.p-text { margin: 0 0 12px; }
+.p-text b { font-weight: 600; }
+.p-plot { margin: 0 0 12px; border: 1px solid var(--line-soft); border-radius: 8px; padding: 6px 4px 2px; }
+.p-plot svg { display: block; width: 100%; height: auto; }
+.p-plot text { font: 10.5px var(--mono); fill: var(--muted); }
+.p-legend { display: grid; gap: 2px; padding: 4px 8px 6px; font-size: 11.5px; color: var(--muted); }
+.p-legend span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.p-legend svg { flex: none; width: 22px; height: 8px; }
+.p-plot .cap { font: 600 11.5px system-ui, sans-serif; fill: var(--ink); }
+.p-op { font-family: var(--mono); font-size: 12.5px; background: #f2f4f7; border-radius: 8px; padding: 9px 11px;
+  margin: 0 0 12px; white-space: pre-wrap; word-break: break-word; }
+.p-tensors { display: grid; gap: 6px; margin-bottom: 12px; }
+.p-t { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.p-t .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex: none; transform: translateY(1px); }
+.p-t .nm { font-weight: 600; }
+.p-t .sh { font-family: var(--mono); font-size: 12.5px; }
+.p-t .gone { color: var(--muted); font-size: 12px; }
+.callout { border: 1px solid #c7d7fe; background: #eef4ff; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.callout .btn { margin-top: 8px; }
+.callout.end { border-color: var(--line); background: #f8f9fb; }
+.legend { border-top: 1px solid var(--line-soft); padding-top: 12px; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.legend h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 6px; color: var(--ink); }
+.legend table { border-collapse: collapse; width: 100%; }
+.legend td { padding: 2px 0; vertical-align: top; }
+.legend td:first-child { font-family: var(--mono); color: var(--ink); width: 54px; }
+.keys { margin-top: 10px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">LeWM <span>· one planning step</span></div>
+  <nav id="crumbs" aria-label="Zoom level"></nav>
+  <div class="controls">
+    <button class="btn" id="b-reset" title="Back to the beginning (Home)">⟲ Reset</button>
+    <button class="btn" id="b-out" title="Zoom out (Esc)">⤴ Zoom out</button>
+    <button class="btn" id="b-play" title="Play / pause (Space)">▶ Play</button>
+    <button class="btn" id="b-prev" title="Previous (←)">← Prev</button>
+    <button class="btn primary" id="b-next" title="Next (→)">Next →</button>
+    <input type="range" id="slider" min="0" max="1" value="0" aria-label="Step">
+    <span id="counter"></span>
+  </div>
+</header>
+<main>
+  <section id="stage-wrap">
+    <div id="stage">
+      <div id="scene">
+        <div id="scene-title"></div>
+        <svg id="edges" viewBox="0 0 1300 760">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#8a94a6"/>
+            </marker>
+            <marker id="arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+            </marker>
+          </defs>
+          <g id="edge-layer"></g>
+        </svg>
+        <div id="node-layer"></div>
+        <div id="tensor-layer"></div>
+      </div>
+    </div>
+  </section>
+  <aside id="panel"></aside>
+</main>
+
+<script>
+"use strict";
+const W = 1300, H = 760;
+const SCENES = {};
+
+/* ======================================================================
+   Helpers to build scenes
+   ====================================================================== */
+function shapeStr(shape, mult) {
+  if (!shape) return undefined;
+  return (mult ? mult + " × " : "") + (shape.length ? "(" + shape.join(", ") + ")" : "()");
+}
+function clean(o) { const r = {}; for (const k in o) if (o[k] !== undefined) r[k] = o[k]; return r; }
+
+/* A "chain" scene: one input, then a list of ops in a snake layout (2 rows).
+   The tensor "x" goes through each op in order. */
+function chain(d) {
+  const n = d.perRow || 5;
+  const rowsY = [130, 480];
+  const xs = (c) => 250 + c * (950 / (n - 1));
+  const nodes = { in: { x: 80, y: rowsY[0], w: 110, h: 50, label: d.input.label, sub: d.input.sub, kind: "io" } };
+  const edges = [];
+  const steps = [{
+    title: d.introTitle || "Input",
+    text: d.intro,
+    op: d.introOp,
+    active: ["in"],
+    t: Object.assign({ x: Object.assign({ at: "in" }, d.x0) }, d.init || {}),
+  }];
+  let prev = "in";
+  d.ops.forEach((op, k) => {
+    const row = Math.floor(k / n), col = k % n;
+    const x = row % 2 === 0 ? xs(col) : xs(n - 1 - col);
+    nodes[op.id] = clean({ x, y: rowsY[row], w: 150, h: 64, label: op.label, sub: op.sub, zoom: op.zoom, out: op.out || shapeStr(op.shape, op.mult) });
+    edges.push([prev, op.id]);
+    const t = {};
+    if (op.out !== false) {
+      t.x = clean({ via: op.id, at: op.id, shape: op.shape, names: op.names, label: op.tlabel,
+        kind: op.kind, grid: op.grid === undefined ? null : op.grid, mult: op.mult || 0 });
+    }
+    Object.assign(t, op.t || {});
+    steps.push({
+      title: op.title || op.label,
+      text: op.text,
+      op: op.code,
+      plot: op.plot,
+      active: [op.id],
+      edges: [prev + ">" + op.id].concat(op.edges || []),
+      t,
+    });
+    prev = op.id;
+  });
+  (d.skips || []).forEach(([a, b]) => edges.push([a, b, { skip: true }]));
+  SCENES[d.id] = { id: d.id, title: d.title, nodes, edges, steps };
+}
+
+/* ======================================================================
+   Scene: one planning call of the policy (top level)
+   ====================================================================== */
+SCENES.top = {
+  id: "top",
+  title: "Planning step",
+  nodes: {
+    obs:  { x: 80,   y: 110, w: 110, h: 50, label: "Env obs", sub: "current frame", kind: "io" },
+    goal: { x: 80,   y: 330, w: 110, h: 50, label: "Goal", sub: "dataset frame", kind: "io" },
+    prep: { x: 300,  y: 220, w: 170, h: 64, label: "Preprocess", sub: "Normalize · Resize 112", out: "2 × (1, 1, 3, 112, 112)" },
+    init: { x: 300,  y: 520, w: 170, h: 64, label: "Init Gaussian", sub: "mean 0 · std 1", out: "2 × (1, 5, 10)" },
+    cem:  { x: 580,  y: 370, w: 190, h: 90, label: "CEM solver", sub: "30 iterations × 300 candidates", zoom: "cem", out: "(1, 5, 10)" },
+    keep: { x: 850,  y: 370, w: 150, h: 64, label: "Keep 5 blocks", sub: "receding_horizon = 5", out: "(1, 5, 10)" },
+    resh: { x: 1110, y: 370, w: 150, h: 64, label: "Reshape", sub: "blocks → env steps", out: "(1, 25, 2)" },
+    buf:  { x: 1110, y: 610, w: 150, h: 64, label: "Action buffer", sub: "deque, maxlen 25", out: "25 × (2,)" },
+    inv:  { x: 850,  y: 610, w: 150, h: 64, label: "Pop + unscale", sub: "inverse StandardScaler", out: "(1, 2)" },
+    env:  { x: 580,  y: 610, w: 150, h: 56, label: "env.step", sub: "PD controller", kind: "io" },
+  },
+  edges: [
+    ["obs", "prep"], ["goal", "prep"], ["prep", "cem"], ["init", "cem"],
+    ["cem", "keep"], ["keep", "resh"], ["resh", "buf"], ["buf", "inv"], ["inv", "env"],
+  ],
+  steps: [
+    {
+      title: "The policy needs an action",
+      text: "During eval, the World calls <code>policy.get_action(info)</code> at every env step. " +
+        "<b>info</b> holds the current frame and the goal frame. The policy plans only when its action buffer is empty: " +
+        "here at env steps 0, 25, 50, … .<br><br>" +
+        "E = number of envs. eval.py runs 50 envs, but the solver handles them one at a time (batch_size = 1), so E = 1 here. " +
+        "T = history_len = 1: the planner sees only the current frame, not older frames.",
+      op: "action = policy.get_action(world.infos)\n# buffer empty → plan:  outputs = self.solver(info)",
+      active: ["obs", "goal"],
+      t: {
+        x: { at: "obs", shape: [1, 1, 224, 224, 3], names: ["E", "T", "H", "W", "C"], kind: "pix", label: "pixels" },
+        g: { at: "goal", shape: [1, 1, 224, 224, 3], names: ["E", "T", "H", "W", "C"], kind: "pix", label: "goal" },
+      },
+    },
+    {
+      title: "Preprocess the images",
+      text: "The same image transform as in training: to a float tensor in [0, 1], ImageNet normalization, and a resize from 224 to <b>112</b> " +
+        "(this checkpoint was trained on 112 × 112). Channels move to the front.<br><br>" +
+        "The state and proprio values are scaled with a StandardScaler too, but the world model does not use them.",
+      op: "transform = Compose([ToImage(), ToDtype(float32, scale=True),\n                      Normalize(**ImageNet), Resize(112)])\ninfo = self._prepare_info(info)",
+      active: ["prep"], edges: ["obs>prep", "goal>prep"],
+      t: {
+        x: { via: "prep", at: "prep", dx: -70, shape: [1, 1, 3, 112, 112], names: ["E", "T", "C", "H", "W"], label: "pixels" },
+        g: { via: "prep", at: "prep", dx: 70, shape: [1, 1, 3, 112, 112], names: ["E", "T", "C", "H", "W"], label: "goal" },
+      },
+    },
+    {
+      title: "Start distribution",
+      text: "CEM searches over action sequences. A sequence has <b>H = 5</b> action blocks, and each block has <b>A = 10</b> values " +
+        "(5 env steps × 2, the same frameskip grouping as in training).<br><br>" +
+        "It starts with a Gaussian: mean 0 and std 1 for each of the 5 × 10 numbers. The actions are in <b>normalized units</b> " +
+        "(StandardScaler fit on the dataset actions), so N(0, 1) covers the usual expert actions.<br><br>" +
+        "Here horizon = receding_horizon, so no part of the last plan is left over. Every plan starts again from N(0, 1) (no warm start).",
+      op: "mean = zeros(1, 5, 10)\nvar  = 1.0 * ones(1, 5, 10)    # var_scale; it is used as a std",
+      active: ["init"],
+      t: { d: { from: "init", at: "init", shape: [1, 5, 10], names: ["E", "H", "A"], kind: "act", mult: 2, label: "mean, std" } },
+    },
+    {
+      title: "CEM solver",
+      text: "The solver makes the Gaussian better, <b>30 times</b>. Each time it samples 300 candidate action sequences, " +
+        "<b>imagines</b> the result of each one with the world model, and keeps the best 30. " +
+        "It never calls the env. In total, one plan imagines 30 × 300 = 9,000 candidates.<br><br>" +
+        "The result is the final mean of the Gaussian. Zoom in to see one iteration.",
+      op: "outputs = self.solver(info, init_action=None)\nactions = outputs[\"actions\"]   # (1, 5, 10)",
+      active: ["cem"], edges: ["prep>cem", "init>cem"], zoom: "cem",
+      t: {
+        x: { gone: "cem" }, g: { gone: "cem" }, d: { gone: "cem" },
+        a: { from: "cem", at: "cem", shape: [1, 5, 10], names: ["E", "H", "A"], kind: "act", label: "actions" },
+      },
+    },
+    {
+      title: "Keep the first 5 blocks",
+      text: "This is <b>receding-horizon</b> control (MPC): plan far, do a part, then plan again with a new frame. " +
+        "The policy keeps the first receding_horizon = 5 blocks. Here that is the full plan, so <code>rest</code> is empty.<br><br>" +
+        "If horizon were larger than receding_horizon, <code>rest</code> would be the start mean of the next plan (warm start).",
+      op: "plan = actions[:, :5]          # (1, 5, 10)\nrest = actions[:, 5:]          # (1, 0, 10): empty, no warm start",
+      active: ["keep"], edges: ["cem>keep"],
+      t: { a: { via: "keep", at: "keep", label: "plan" } },
+    },
+    {
+      title: "Blocks to env steps",
+      text: "One block holds the actions of 5 env steps. A reshape gives one 2-value action per env step: 5 × 5 = <b>25</b> actions.",
+      op: "plan = plan.reshape(1, 25, -1)   # (1, 25, 2)",
+      active: ["resh"], edges: ["keep>resh"],
+      t: { a: { via: "resh", at: "resh", shape: [1, 25, 2], names: ["E", "5·5", "xy"], label: "plan" } },
+    },
+    {
+      title: "Fill the buffer",
+      text: "Each env has its own buffer (a deque). The 25 actions go into it. The policy does not plan again until the buffer is empty.",
+      op: "self._action_buffer[0].extend(plan[0])",
+      active: ["buf"], edges: ["resh>buf"],
+      t: { a: { via: "buf", at: "buf", shape: [25, 2], names: ["steps", "xy"], label: "buffer" } },
+    },
+    {
+      title: "Pop one action and unscale it",
+      text: "At each env step, the policy takes the oldest action from the buffer. " +
+        "The solver works in normalized units, so the action goes through the inverse of the StandardScaler. " +
+        "The result is in env units, about −1 … 1.",
+      op: "action = self._action_buffer[0].popleft()                 # (2,)\naction = self.process[\"action\"].inverse_transform(action)  # (1, 2)",
+      active: ["inv"], edges: ["buf>inv"],
+      t: {
+        a: { at: "buf", shape: [24, 2], names: ["left", "xy"], label: "buffer (24 left)" },
+        p: { from: "buf", at: "inv", shape: [1, 2], names: ["E", "xy"], kind: "act", label: "action" },
+      },
+    },
+    {
+      title: "Step the env",
+      text: "In Push-T the action is a <b>relative target</b> for the agent: target = agent position + 100 · action (in pixels of the 512 × 512 world). " +
+        "A PD controller moves the agent toward the target, and the physics engine pushes the T block when they touch.<br><br>" +
+        "The next 24 env steps only pop actions from the buffer. After 25 steps the buffer is empty, and the policy plans again from step 1 with the new frame. " +
+        "The episode is a success when the agent and block are within 20 px and 20° of the goal pose.",
+      op: "target = agent.position + action * 100\n# PD control: accel = k_p · (target − pos) − k_v · vel",
+      active: ["env"], edges: ["inv>env"],
+      t: { p: { gone: "env" } },
+    },
+  ],
+};
+
+/* ======================================================================
+   Scene: CEM solver (one iteration)
+   ====================================================================== */
+SCENES.cem = {
+  id: "cem",
+  title: "CEM solver",
+  nodes: {
+    info:  { x: 80,   y: 130, w: 110, h: 50, label: "info", sub: "pixels · goal", kind: "io" },
+    exp:   { x: 290,  y: 130, w: 160, h: 64, label: "Expand", sub: "× 300 samples (a view)", out: "(1, 300, 1, 3, 112, 112)" },
+    samp:  { x: 290,  y: 420, w: 160, h: 64, label: "Sample", sub: "randn · std + mean", out: "(1, 300, 5, 10)" },
+    dist:  { x: 290,  y: 640, w: 140, h: 56, label: "Gaussian", sub: "mean · std", kind: "io" },
+    cost:  { x: 580,  y: 280, w: 190, h: 90, label: "World-model cost", sub: "model.get_cost", zoom: "getcost", out: "(1, 300)" },
+    topk:  { x: 830,  y: 280, w: 150, h: 64, label: "Top-k", sub: "k = 30, lowest cost", out: "2 × (1, 30)" },
+    gath:  { x: 1060, y: 280, w: 150, h: 64, label: "Gather elites", sub: "cand[topk_inds]", out: "(1, 30, 5, 10)" },
+    refit: { x: 1060, y: 640, w: 150, h: 64, label: "Refit", sub: "mean, std of elites", out: "2 × (1, 5, 10)" },
+    out:   { x: 1230, y: 470, w: 110, h: 50, label: "actions", sub: "final mean", kind: "io" },
+  },
+  edges: [
+    ["info", "exp"], ["exp", "cost"], ["dist", "samp"], ["samp", "cost"], ["cost", "topk"], ["topk", "gath"],
+    ["samp", "gath", { v: true }], ["gath", "refit"], ["refit", "dist"], ["refit", "out"],
+  ],
+  steps: [
+    {
+      title: "Solver inputs",
+      text: "<b>info</b>: the preprocessed current frame and goal frame. <b>Gaussian</b>: the start mean and std. " +
+        "The solver works on one env at a time (batch_size = 1). It has a seeded random generator, so a run can be repeated.",
+      op: "outputs = solver.solve(info_dict, init_action=None)",
+      active: ["info", "dist"],
+      t: {
+        x: { at: "info", shape: [1, 1, 3, 112, 112], names: ["E", "T", "C", "H", "W"], kind: "pix", mult: 2, label: "pixels, goal" },
+        d: { at: "dist", shape: [1, 5, 10], names: ["E", "H", "A"], kind: "act", mult: 2, label: "mean, std" },
+      },
+    },
+    {
+      title: "One copy per candidate",
+      text: "Every candidate starts from the same frame and wants the same goal. So each info tensor gets a new axis <b>S = 300</b>. " +
+        "<code>expand</code> makes a view: the 300 copies share the same memory.",
+      op: "v = v.unsqueeze(1).expand(1, 300, *v.shape[1:])",
+      active: ["exp"], edges: ["info>exp"],
+      t: { x: { via: "exp", at: "exp", shape: [1, 300, 1, 3, 112, 112], names: ["E", "S", "T", "C", "H", "W"], label: "pixels, goal" } },
+    },
+    {
+      title: "Sample 300 candidates",
+      text: "Draw 300 action sequences from the Gaussian. <b>Candidate 0 is set to the mean</b>, so the current best guess is always tested again.<br><br>" +
+        "This and the next 4 steps are <b>one CEM iteration</b>. It runs 30 times.",
+      op: "candidates = torch.randn(1, 300, 5, 10, generator=g) * var + mean\ncandidates[:, 0] = mean",
+      active: ["samp"], edges: ["dist>samp"],
+      t: { c: { from: "samp", at: "samp", shape: [1, 300, 5, 10], names: ["E", "S", "H", "A"], kind: "act", label: "candidates" } },
+    },
+    {
+      title: "Score with the world model",
+      text: "The world model imagines where each candidate goes and gives one cost per candidate: how far the last imagined latent is from the goal latent. " +
+        "Lower is better. No env step and no pixels are made. Zoom in to see how.",
+      op: "costs = self.model.get_cost(expanded_infos, candidates)   # (1, 300)",
+      active: ["cost"], edges: ["exp>cost", "samp>cost"], zoom: "cost",
+      t: { k: { from: "cost", at: "cost", shape: [1, 300], names: ["E", "S"], kind: "loss", label: "costs" } },
+    },
+    {
+      title: "Keep the best 30",
+      text: "torch.topk with largest=False gives the 30 lowest costs (the <b>elites</b>) and their indices.",
+      op: "topk_vals, topk_inds = torch.topk(costs, k=30, dim=1, largest=False)",
+      active: ["topk"], edges: ["cost>topk"],
+      t: { k: { via: "topk", at: "topk", shape: [1, 30], names: ["E", "K"], mult: 2, label: "topk_vals, topk_inds" } },
+    },
+    {
+      title: "Gather the elite actions",
+      text: "Use the indices to take the 30 elite action sequences out of the 300 candidates.",
+      op: "topk_candidates = candidates[batch_indices, topk_inds]   # (1, 30, 5, 10)",
+      active: ["gath"], edges: ["topk>gath", "samp>gath"],
+      t: {
+        k: { gone: "gath" }, c: { gone: "gath" },
+        e: { from: "gath", at: "gath", shape: [1, 30, 5, 10], names: ["E", "K", "H", "A"], kind: "act", label: "elites" },
+      },
+    },
+    {
+      title: "Fit a new Gaussian",
+      text: "The new mean and std are the mean and the (unbiased) std of the 30 elites, for each of the 5 × 10 numbers. " +
+        "The std gets smaller when the elites agree. The other 270 candidates are not used.",
+      op: "batch_mean = topk_candidates.mean(dim=1)   # (1, 5, 10)\nbatch_var  = topk_candidates.std(dim=1)    # (1, 5, 10), a std",
+      active: ["refit"], edges: ["gath>refit"],
+      t: { e: { via: "refit", at: "refit", shape: [1, 5, 10], names: ["E", "H", "A"], mult: 2, label: "new mean, std" } },
+    },
+    {
+      title: "Repeat 30 times",
+      text: "The new Gaussian replaces the old one, and the loop goes back to <b>Sample</b>. After n_steps = 30 iterations the loop stops.<br><br>" +
+        "In the recorded run (see the data page), the best cost of plan 1 went from 51 to 1.1, and the mean std from 1.0 to 0.20.",
+      op: "for step in range(30):\n    # sample → get_cost → topk → gather → refit",
+      active: ["dist"], edges: ["refit>dist"],
+      t: { d: null, e: { via: "dist", at: "dist", label: "mean, std" } },
+    },
+    {
+      title: "Return the mean",
+      text: "The solver returns the final <b>mean</b>, not the best candidate it saw. The mean is a smooth average of the elites. " +
+        "It also returns the mean elite cost of the last iteration, for logging.",
+      op: "outputs[\"actions\"] = mean.detach().cpu()   # (1, 5, 10)\noutputs[\"costs\"]   = topk_vals.mean(dim=1)",
+      active: ["out"], edges: ["refit>out"],
+      t: { e: { via: "out", at: "out", shape: [1, 5, 10], names: ["E", "H", "A"], mult: 0, label: "actions" } },
+    },
+  ],
+};
+
+/* ======================================================================
+   Scene: JEPA.get_cost
+   ====================================================================== */
+SCENES.getcost = {
+  id: "getcost",
+  title: "World-model cost",
+  nodes: {
+    info:  { x: 80,   y: 150, w: 110, h: 50, label: "info", sub: "expanded", kind: "io" },
+    cand:  { x: 80,   y: 570, w: 120, h: 50, label: "candidates", sub: "action plans", kind: "io" },
+    genc:  { x: 330,  y: 150, w: 170, h: 64, label: "Encode goal", sub: "sample 0 only", zoom: "encode", out: "(1, 1, 192)" },
+    zenc:  { x: 330,  y: 360, w: 170, h: 64, label: "Encode frame", sub: "sample 0 only", zoom: "encode", out: "(1, 1, 192)" },
+    expz:  { x: 580,  y: 360, w: 160, h: 64, label: "Expand + flatten", sub: "b s → (b s)", out: "(300, 1, 192)" },
+    split: { x: 330,  y: 570, w: 170, h: 64, label: "Split actions", sub: "first 1 · next 4", out: "(300, 1, 10) + (300, 4, 10)" },
+    roll:  { x: 840,  y: 470, w: 190, h: 90, label: "Rollout", sub: "predictor, 5 steps ahead", zoom: "rollout", out: "(1, 300, 6, 192)" },
+    crit:  { x: 1110, y: 300, w: 170, h: 64, label: "Cost", sub: "‖ẑ₅ − z_goal‖²", out: "(1, 300)" },
+  },
+  edges: [
+    ["info", "genc"], ["info", "zenc"], ["zenc", "expz"], ["cand", "split"],
+    ["expz", "roll"], ["split", "roll"], ["genc", "crit"], ["roll", "crit"],
+  ],
+  steps: [
+    {
+      title: "Cost inputs",
+      text: "<b>info</b>: the current frame and goal frame, with one (shared) copy per candidate. " +
+        "<b>candidates</b>: 300 action plans of 5 blocks. The model is in eval mode and runs under <code>torch.inference_mode()</code>: no gradients.",
+      op: "costs = model.get_cost(info_dict, action_candidates)",
+      active: ["info", "cand"],
+      t: {
+        x: { at: "info", shape: [1, 300, 1, 3, 112, 112], names: ["B", "S", "T", "C", "H", "W"], kind: "pix", mult: 2, label: "pixels, goal" },
+        c: { at: "cand", shape: [1, 300, 5, 10], names: ["B", "S", "H", "A"], kind: "act", label: "candidates" },
+      },
+    },
+    {
+      title: "Encode the goal",
+      text: "All 300 copies are the same, so only sample 0 is used: <code>v[:, 0]</code>. The goal image goes through the encoder and projector " +
+        "(zoom in) and gives <b>z_goal</b>, one vector of size 192.<br><br>" +
+        "Note: get_cost is called in every CEM iteration, so the goal and the current frame are encoded again 30 times per plan, with the same result.",
+      op: "goal = {k: v[:, 0] for k, v in info_dict.items()}\ngoal[\"pixels\"] = goal[\"goal\"]\ngoal_emb = self.encode(goal)[\"emb\"]   # (1, 1, 192)",
+      active: ["genc"], edges: ["info>genc"], zoom: "genc",
+      t: { g: { from: "genc", at: "genc", shape: [1, 1, 192], names: ["B", "T", "D"], kind: "emb", label: "z_goal" } },
+    },
+    {
+      title: "Encode the current frame",
+      text: "The same encoder on the current frame gives <b>z₀</b>. This is where all imagined paths start.",
+      op: "_init = {k: v[:, 0] for k, v in info.items()}\n_init = self.encode(_init)   # emb: (1, 1, 192)",
+      active: ["zenc"], edges: ["info>zenc"], zoom: "zenc",
+      t: {
+        x: { gone: "zenc" },
+        z: { from: "zenc", at: "zenc", shape: [1, 1, 192], names: ["B", "T", "D"], kind: "emb", label: "z₀" },
+      },
+    },
+    {
+      title: "One z₀ per candidate",
+      text: "z₀ is copied for the 300 candidates, and the batch and sample axes are merged: <b>300</b> rows. " +
+        "From here on, the predictor sees a normal batch of 300 sequences.",
+      op: "emb = z0.unsqueeze(1).expand(1, 300, -1, -1)       # (1, 300, 1, 192)\nemb = rearrange(emb, \"b s ... -> (b s) ...\")    # (300, 1, 192)",
+      active: ["expz"], edges: ["zenc>expz"],
+      t: { z: { via: "expz", at: "expz", shape: [300, 1, 192], names: ["B·S", "T", "D"], label: "emb" } },
+    },
+    {
+      title: "Split the actions",
+      text: "H = number of known frames = history_len = 1. The first action block goes with z₀ from the start. " +
+        "The other 4 blocks wait in <b>act_future</b>; the rollout adds them one by one. Both are flattened to 300 rows too.",
+      op: "act_0, act_future = torch.split(action_sequence, [1, 4], dim=2)\n# flatten (b s): (300, 1, 10) and (300, 4, 10)",
+      active: ["split"], edges: ["cand>split"],
+      t: {
+        c: { via: "split", at: [250, 660], shape: [300, 1, 10], names: ["B·S", "T", "A"], label: "act" },
+        f: { from: "split", at: [420, 660], shape: [300, 4, 10], names: ["B·S", "T", "A"], kind: "act", label: "act_future" },
+      },
+    },
+    {
+      title: "Imagine 5 steps ahead",
+      text: "The rollout runs the predictor <b>autoregressively</b>: each new latent is fed back as input for the next one. " +
+        "Each candidate gets a path z₀ → ẑ₁ → … → ẑ₅. Zoom in to see the loop.",
+      op: "info = self.rollout(info, action_candidates)\npred = info[\"predicted_emb\"]   # (1, 300, 6, 192)",
+      active: ["roll"], edges: ["expz>roll", "split>roll"], zoom: "roll",
+      t: {
+        z: { gone: "roll" }, c: { gone: "roll" }, f: { gone: "roll" },
+        p: { from: "roll", at: "roll", shape: [1, 300, 6, 192], names: ["B", "S", "T", "D"], kind: "pred", label: "predicted_emb" },
+      },
+    },
+    {
+      title: "Distance to the goal",
+      text: "Only the <b>last</b> imagined latent ẑ₅ counts. The cost is the squared difference to z_goal, <b>summed</b> over the 192 values " +
+        "(mse_loss with reduction=\"none\", then a sum, not a mean). ẑ₁ … ẑ₄ do not count.<br><br>" +
+        "So the planner does not care which way the latent goes, only where it ends after 25 env steps.",
+      op: "cost = F.mse_loss(pred[..., -1:, :], goal_emb[..., -1:, :].expand_as(...),\n                  reduction=\"none\").sum(dim=(2, 3))   # (1, 300)",
+      active: ["crit"], edges: ["genc>crit", "roll>crit"],
+      t: {
+        p: { gone: "crit" }, g: { gone: "crit" },
+        k: { from: "crit", at: "crit", shape: [1, 300], names: ["B", "S"], kind: "loss", label: "cost" },
+      },
+    },
+  ],
+};
+
+/* ======================================================================
+   Scene: encode one frame (encoder + projector)
+   ====================================================================== */
+chain({
+  id: "encode", title: "Encode (one frame)", perRow: 4,
+  input: { label: "pixels", sub: "1 frame" },
+  x0: { shape: [1, 1, 3, 112, 112], names: ["B", "T", "C", "H", "W"], kind: "pix", label: "pixels" },
+  introTitle: "Encoder input",
+  intro: "JEPA.encode, the same code and weights as in training. Only the batch is different: <b>one image</b> instead of 512. " +
+    "The model is in eval mode. This changes BatchNorm in the projector (see below).",
+  ops: [
+    { id: "flat", label: "Flatten time", sub: "b t → (b t)", shape: [1, 3, 112, 112], names: ["B·T", "C", "H", "W"],
+      text: "The encoder looks at one image at a time. Here B · T = 1.",
+      code: 'pixels = rearrange(pixels, "b t ... -> (b t) ...")' },
+    { id: "vit", label: "Encoder", sub: "ViT-tiny · 12 blocks", shape: [1, 65, 192], names: ["B·T", "N", "D"], kind: "tok", tlabel: "last_hidden_state",
+      text: "The ViT-tiny from training: 64 patches of 14 × 14 pixels plus one CLS token, 12 blocks. " +
+        "The inside is shown in the training visualizer (lewm_training.html).",
+      code: "output = self.encoder(pixels, interpolate_pos_encoding=True)" },
+    { id: "cls", label: "Keep CLS", sub: "token 0", shape: [1, 192], names: ["B·T", "D"], tlabel: "CLS token",
+      text: "Only the CLS token is kept. It is the summary of the whole image.",
+      code: "pixels_emb = output.last_hidden_state[:, 0]" },
+    { id: "l1", label: "Linear", sub: "192 → 2048", shape: [1, 2048], names: ["B·T", "2048"], kind: "emb",
+      text: "Projector, layer 1: make the vector wider.", code: "h = Linear(192, 2048)(x)" },
+    { id: "bn", label: "BatchNorm1d", sub: "eval: running stats", shape: [1, 2048],
+      text: "In training, BatchNorm used the mean and std of each batch. In eval mode it uses the <b>running mean and variance</b> saved during training. " +
+        "So the result for one image does not depend on the other images. (With a batch of one image, batch statistics would not work.)",
+      code: "h = (h - running_mean) / sqrt(running_var + eps) * weight + bias" },
+    { id: "act", label: "GELU", sub: "activation", shape: [1, 2048], plot: "gelu",
+      text: "GELU(x) = x · Φ(x), applied to each value alone.", code: "h = gelu(h)" },
+    { id: "l2", label: "Linear", sub: "2048 → 192", shape: [1, 192], names: ["B·T", "D"],
+      text: "Back to 192 values: the latent z.", code: "emb = Linear(2048, 192)(h)" },
+    { id: "unfl", label: "Unflatten", sub: "(b t) → b t", shape: [1, 1, 192], names: ["B", "T", "D"], kind: "emb", tlabel: "emb",
+      text: "Time comes back as its own axis. This is z for the frame.",
+      code: 'info["emb"] = rearrange(emb, "(b t) d -> b t d", b=1)' },
+  ],
+});
+
+/* ======================================================================
+   Scene: autoregressive rollout (JEPA.rollout)
+   ====================================================================== */
+const ROLL_LOOP_EDGES = ["act>aenc", "emb>trunc", "aenc>trunc", "trunc>pred", "pred>pproj", "pproj>last", "last>cat", "cat>emb"];
+SCENES.rollout = {
+  id: "rollout",
+  title: "Rollout",
+  nodes: {
+    emb:   { x: 80,   y: 150, w: 110, h: 50, label: "emb", sub: "z₀ … latest", kind: "io" },
+    act:   { x: 80,   y: 440, w: 110, h: 50, label: "act", sub: "a₀ … latest", kind: "io" },
+    nact:  { x: 80,   y: 610, w: 140, h: 50, label: "Append action", sub: "act_future[:, t]" },
+    fut:   { x: 80,   y: 712, w: 110, h: 44, label: "act_future", sub: "4 blocks", kind: "io" },
+    aenc:  { x: 300,  y: 440, w: 170, h: 64, label: "Action encoder", sub: "Conv1d + MLP", zoom: "embedder", out: "(300, t, 192)" },
+    trunc: { x: 500,  y: 300, w: 150, h: 64, label: "Last 3", sub: "history_size = 3", out: "2 × (300, ≤3, 192)" },
+    pred:  { x: 720,  y: 300, w: 170, h: 80, label: "Predictor", sub: "6 blocks · AdaLN-zero", zoom: "predictor", out: "(300, ≤3, 192)" },
+    pproj: { x: 935,  y: 300, w: 150, h: 64, label: "pred_proj", sub: "MLP 192→2048→192", zoom: "predproj", out: "(300, ≤3, 192)" },
+    last:  { x: 1130, y: 300, w: 140, h: 64, label: "Take last", sub: "[:, -1:]", out: "(300, 1, 192)" },
+    cat:   { x: 1130, y: 150, w: 140, h: 56, label: "Append latent", sub: "cat(emb, ẑ)" },
+    out:   { x: 1235, y: 580, w: 110, h: 50, label: "predicted_emb", sub: "6 latents", kind: "io" },
+  },
+  edges: [
+    ["act", "aenc"], ["emb", "trunc", { v: true }], ["aenc", "trunc"], ["trunc", "pred"], ["pred", "pproj"],
+    ["pproj", "last"], ["last", "cat"], ["cat", "emb"], ["fut", "nact"], ["nact", "act"], ["last", "out"],
+  ],
+  steps: [
+    {
+      title: "Start of the rollout",
+      text: "<b>emb</b> holds z₀ for each of the 300 candidates. <b>act</b> holds their first action block a₀. " +
+        "<b>act_future</b> holds a₁ … a₄.<br><br>" +
+        "The loop runs n_steps = 5 − 1 = 4 times, and then there is one last prediction. So there are <b>5 predictions</b>: ẑ₁ … ẑ₅, one per action block. " +
+        "Each prediction looks 5 env steps ahead (frameskip 5), as in training.",
+      op: "n_steps = T - H        # 5 - 1 = 4\nHS = history_size      # 3",
+      active: ["emb", "act", "fut"],
+      t: {
+        e: { at: "emb", dx: 160, dy: 62, shape: [300, 1, 192], names: ["B·S", "T", "D"], kind: "emb", label: "emb: z₀" },
+        a: { at: "act", shape: [300, 1, 10], names: ["B·S", "T", "A"], kind: "act", label: "act: a₀" },
+        f: { at: "fut", dx: 150, dy: -56, shape: [300, 4, 10], names: ["B·S", "T", "A"], kind: "act", label: "act_future" },
+      },
+    },
+    {
+      title: "Loop t = 0: embed the actions",
+      text: "The action encoder turns each 10-value action block into a 192-value vector. It runs on all actions so far " +
+        "(it has kernel size 1, so each step is handled alone and old steps give the same result as before).",
+      op: "act_emb = self.action_encoder(act)   # (300, 1, 192)",
+      active: ["aenc"], edges: ["act>aenc"], zoom: "aenc",
+      t: { ae: { from: "aenc", at: "aenc", shape: [300, 1, 192], names: ["B·S", "T", "D"], kind: "act", label: "act_emb" } },
+    },
+    {
+      title: "Keep at most the last 3",
+      text: "The predictor was trained with 3 context frames (history_size = 3). So it gets at most the <b>last 3</b> latents and the last 3 action embeddings. " +
+        "Now there is only 1 of each.",
+      op: "emb_trunc = emb[:, -3:]       # (300, 1, 192)\nact_trunc = act_emb[:, -3:]   # (300, 1, 192)",
+      active: ["trunc"], edges: ["emb>trunc", "aenc>trunc"],
+      t: {
+        ae: { gone: "trunc" },
+        h: { from: "trunc", at: "trunc", shape: [300, 1, 192], names: ["B·S", "T", "D"], kind: "emb", mult: 2, label: "emb_trunc, act_trunc" },
+      },
+    },
+    {
+      title: "Predictor",
+      text: "The same causal transformer as in training. Position i of the output is the prediction for the frame after position i. " +
+        "The actions come in through AdaLN-zero. Zoom in for the planning shapes.",
+      op: "preds = self.predictor(emb_trunc, act_trunc)   # (300, 1, 192)",
+      active: ["pred"], edges: ["trunc>pred"], zoom: "pred",
+      t: { h: { via: "pred", at: "pred", mult: 0, kind: "pred", label: "predictor out" } },
+    },
+    {
+      title: "pred_proj",
+      text: "JEPA.predict also applies pred_proj, the MLP after the predictor (as in training). Time is merged into the batch for it and split again.",
+      op: "preds = self.pred_proj(rearrange(preds, \"b t d -> (b t) d\"))\npreds = rearrange(preds, \"(b t) d -> b t d\", b=300)",
+      active: ["pproj"], edges: ["pred>pproj"], zoom: "pproj",
+      t: { h: { via: "pproj", at: "pproj", label: "pred_emb" } },
+    },
+    {
+      title: "Take the last position",
+      text: "Only the output at the last position is new: the prediction of the next frame, <b>ẑ₁</b>. " +
+        "The other positions predict frames that are already in emb.",
+      op: "pred_emb = self.predict(emb_trunc, act_trunc)[:, -1:]   # (300, 1, 192)",
+      active: ["last"], edges: ["pproj>last"],
+      t: { h: { via: "last", at: "last", shape: [300, 1, 192], names: ["B·S", "T", "D"], label: "ẑ₁" } },
+    },
+    {
+      title: "Append the new latent and the next action",
+      text: "ẑ₁ is added to the end of emb. It is now an <b>input</b> for the next prediction: this is what <i>autoregressive</i> means. " +
+        "The next action block a₁ comes from act_future and is added to act.",
+      op: "emb = torch.cat([emb, pred_emb], dim=1)      # (300, 2, 192)\nact = torch.cat([act, act_future[:, 0:1]], dim=1)   # (300, 2, 10)",
+      active: ["cat", "nact"], edges: ["last>cat", "cat>emb", "fut>nact", "nact>act"],
+      t: {
+        h: { gone: "cat" },
+        e: { at: "emb", shape: [300, 2, 192], label: "emb: z₀ ẑ₁" },
+        a: { at: "act", shape: [300, 2, 10], label: "act: a₀ a₁" },
+      },
+    },
+    {
+      title: "Loop t = 1",
+      text: "The same steps again. Now the predictor gets 2 latents (z₀, ẑ₁) and 2 actions (a₀, a₁), and its last position predicts <b>ẑ₂</b>.",
+      op: "# action_encoder → last 3 → predictor → pred_proj → take last → append\nemb: (300, 3, 192)   act: (300, 3, 10)",
+      active: ["aenc", "trunc", "pred", "pproj", "last", "cat", "nact"], edges: ROLL_LOOP_EDGES.concat(["fut>nact", "nact>act"]),
+      t: {
+        e: { at: "emb", shape: [300, 3, 192], label: "emb: z₀ ẑ₁ ẑ₂" },
+        a: { at: "act", shape: [300, 3, 10], label: "act: a₀ a₁ a₂" },
+      },
+    },
+    {
+      title: "Loop t = 2: the window is full",
+      text: "The predictor gets 3 latents (z₀, ẑ₁, ẑ₂): the same size of context as in training. It predicts <b>ẑ₃</b>.",
+      op: "emb: (300, 4, 192)   act: (300, 4, 10)",
+      active: ["aenc", "trunc", "pred", "pproj", "last", "cat", "nact"], edges: ROLL_LOOP_EDGES.concat(["fut>nact", "nact>act"]),
+      t: {
+        e: { at: "emb", shape: [300, 4, 192], label: "emb: z₀ … ẑ₃" },
+        a: { at: "act", shape: [300, 4, 10], label: "act: a₀ … a₃" },
+      },
+    },
+    {
+      title: "Loop t = 3: the window slides",
+      text: "emb has 4 latents now, but <code>[:, -3:]</code> keeps only ẑ₁, ẑ₂, ẑ₃. <b>z₀ drops out</b>: from here the predictor sees only its own predictions. " +
+        "The positions in the window are always 0, 1, 2 (pos_embedding[:, :3]). It predicts <b>ẑ₄</b>. " +
+        "This was the last action in act_future.",
+      op: "emb_trunc = emb[:, -3:]   # ẑ₁ ẑ₂ ẑ₃\nemb: (300, 5, 192)   act: (300, 5, 10)",
+      active: ["aenc", "trunc", "pred", "pproj", "last", "cat", "nact"], edges: ROLL_LOOP_EDGES.concat(["fut>nact", "nact>act"]),
+      t: {
+        e: { at: "emb", shape: [300, 5, 192], label: "emb: z₀ … ẑ₄" },
+        a: { at: "act", shape: [300, 5, 10], label: "act: a₀ … a₄" },
+        f: { gone: "nact" },
+      },
+    },
+    {
+      title: "Last prediction",
+      text: "After the loop, one more prediction with the window ẑ₂, ẑ₃, ẑ₄ and the actions a₂, a₃, a₄ gives <b>ẑ₅</b>. " +
+        "No action is appended: there is no action after a₄.",
+      op: "act_emb = self.action_encoder(act)\npred_emb = self.predict(emb[:, -3:], act_emb[:, -3:])[:, -1:]\nemb = torch.cat([emb, pred_emb], dim=1)   # (300, 6, 192)",
+      active: ["aenc", "trunc", "pred", "pproj", "last", "cat"], edges: ROLL_LOOP_EDGES,
+      t: { e: { at: "emb", shape: [300, 6, 192], label: "emb: z₀ … ẑ₅" } },
+    },
+    {
+      title: "Rollout output",
+      text: "The 300 rows are split back into batch and samples. Each candidate now has 6 latents: z₀ and the 5 predictions. " +
+        "get_cost uses only the last one.",
+      op: "pred_rollout = rearrange(emb, \"(b s) ... -> b s ...\", b=1, s=300)\ninfo[\"predicted_emb\"] = pred_rollout   # (1, 300, 6, 192)",
+      active: ["out"], edges: ["last>out"],
+      t: {
+        a: null,
+        e: { via: "out", at: "out", dx: 0, dy: 0, shape: [1, 300, 6, 192], names: ["B", "S", "T", "D"], kind: "pred", label: "predicted_emb" },
+      },
+    },
+  ],
+};
+
+/* ======================================================================
+   Scene: predictor (ARPredictor), planning shapes
+   ====================================================================== */
+SCENES.predictor = {
+  id: "predictor",
+  title: "Predictor (ARPredictor)",
+  nodes: {
+    xin:    { x: 80,  y: 200, w: 110, h: 50, label: "emb_trunc", sub: "≤ 3 latents", kind: "io" },
+    cin:    { x: 80,  y: 520, w: 110, h: 50, label: "act_trunc", sub: "≤ 3 actions", kind: "io" },
+    pos:    { x: 320, y: 200, w: 180, h: 64, label: "+ pos_embedding", sub: "learned, first T rows", out: "(300, 3, 192)" },
+    blocks: { x: 640, y: 200, w: 200, h: 84, label: "ConditionalBlock ×6", sub: "attention + MLP, AdaLN-zero", zoom: "condblock", out: "(300, 3, 192)" },
+    ln:     { x: 960, y: 200, w: 160, h: 64, label: "LayerNorm", sub: "final norm", out: "(300, 3, 192)" },
+  },
+  edges: [["xin", "pos"], ["pos", "blocks"], ["cin", "blocks", { v: true }], ["blocks", "ln"]],
+  steps: [
+    {
+      title: "Predictor inputs",
+      text: "The shapes here are for a full window, T = 3 (loop t ≥ 2). In the first two calls T is 1 and 2; the code is the same. " +
+        "The batch is the <b>300 candidates</b>, not 128 clips. All sizes are 192, so input_proj, cond_proj and output_proj are Identity.",
+      op: "preds = self.predictor(emb_trunc, act_trunc)",
+      active: ["xin", "cin"],
+      t: {
+        x: { at: "xin", shape: [300, 3, 192], names: ["B·S", "T", "D"], kind: "emb", label: "x = emb_trunc" },
+        c: { at: "cin", shape: [300, 3, 192], names: ["B·S", "T", "D"], kind: "act", label: "c = act_trunc" },
+      },
+    },
+    {
+      title: "Add time position",
+      text: "A learned position embedding for the T time steps is added. In the window, the oldest latent is always at position 0, " +
+        "so a predicted latent can be at position 0, 1 or 2 in different calls.",
+      op: "x = x + self.pos_embedding[:, :T]",
+      active: ["pos"], edges: ["xin>pos"],
+      t: {
+        x: { via: "pos", at: "pos", kind: "tok", label: "x" },
+        pe: { from: "pos", at: [320, 40], shape: [1, 3, 192], names: ["1", "T", "D"], kind: "param", label: "pos_embedding" },
+      },
+    },
+    {
+      title: "6 conditional blocks",
+      text: "Six transformer blocks. Each block gets x and also the actions c through <b>AdaLN-zero</b> (zoom in). " +
+        "Dropout is off (model.eval()).",
+      op: "for block in layers:\n    x = block(x, c)",
+      active: ["blocks"], edges: ["pos>blocks", "cin>blocks"], zoom: "blocks",
+      t: { x: { via: "blocks", at: "blocks", label: "x" }, c: { gone: "blocks" }, pe: null },
+    },
+    {
+      title: "Final LayerNorm",
+      text: "A last LayerNorm. Position t of the output is the prediction for the frame after position t. " +
+        "The rollout uses only the last position.",
+      op: "x = self.norm(x)",
+      active: ["ln"], edges: ["blocks>ln"],
+      t: { x: { via: "ln", at: "ln", kind: "pred", label: "predictor out" } },
+    },
+  ],
+};
+
+chain({
+  id: "predproj", title: "pred_proj MLP", perRow: 6,
+  input: { label: "preds", sub: "predictor out" },
+  x0: { shape: [300, 3, 192], names: ["B", "T", "D"], kind: "pred", label: "predictor out" },
+  intro: "Same structure as the projector (Linear, BatchNorm1d, GELU, Linear), but its own weights. Called inside JEPA.predict. BatchNorm1d needs a 2-D input, so time goes into the batch first.",
+  ops: [
+    { id: "fl", label: "Flatten", sub: "b t d → (b t) d", shape: [900, 192], names: ["B·T", "D"],
+      text: "300 candidates × 3 positions = 900 vectors (shapes for a full window, T = 3).", code: 'p = rearrange(preds, "b t d -> (b t) d")' },
+    { id: "l1", label: "Linear", sub: "192 → 2048", shape: [900, 2048], names: ["B·T", "2048"],
+      text: "Make the vector wider.", code: "h = Linear(192, 2048)(p)" },
+    { id: "bn", label: "BatchNorm1d", sub: "eval: running stats", shape: [900, 2048],
+      text: "In eval mode BatchNorm does not use the batch: it uses the running mean and variance saved during training.", code: "h = BatchNorm1d(2048)(h)" },
+    { id: "act", label: "GELU", sub: "activation", shape: [900, 2048], plot: "gelu",
+      text: "GELU(x) = x · Φ(x), where Φ is the standard Gaussian CDF: the chance that a N(0, 1) value is smaller than x. Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down. It is applied to each value alone, so the shape does not change.", code: "h = gelu(h)\n# GELU(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))" },
+    { id: "l2", label: "Linear", sub: "2048 → 192", shape: [900, 192], names: ["B·T", "D"],
+      text: "Back to 192 values.", code: "p = Linear(2048, 192)(h)" },
+    { id: "unfl", label: "Unflatten", sub: "(b t) d → b t d", shape: [300, 3, 192], names: ["B", "T", "D"], tlabel: "pred_emb",
+      text: "Split time out again. The rollout keeps only the last position.", code: 'pred_emb = rearrange(p, "(b t) d -> b t d", b=300)' },
+  ],
+});
+
+chain({
+  id: "embedder", title: "Action encoder (Embedder)", perRow: 6,
+  input: { label: "action", sub: "10 values" },
+  x0: { shape: [300, 5, 10], names: ["B", "T", "A"], kind: "act", label: "action" },
+  intro: "One action vector holds 5 raw PushT actions (frameskip 5) of 2 values each: <b>A = 10</b>. " +
+    "The Embedder makes it a 192-value vector, so it can condition the predictor. The shapes are for the last call of the rollout, when act has all 5 blocks (300 candidates × 5 blocks).",
+  ops: [
+    { id: "perm", label: "Permute", sub: "for Conv1d", shape: [300, 10, 5], names: ["B", "A", "T"],
+      text: "Conv1d wants channels in the middle, so the axes are swapped.", code: "x = x.permute(0, 2, 1)" },
+    { id: "conv", label: "Conv1d", sub: "kernel 1 · 10 → 10", shape: [300, 10, 5],
+      text: "The 10 action values are the channels and the 5 time steps are the length. With <b>kernel size 1</b>, the kernel sees one time step only. " +
+        "So this is the same as Linear(10, 10) on each time step alone, with the same weights for all 5 steps. It mixes the 10 action values; it does not mix time steps (no smoothing). " +
+        "Note: the next Linear (10 → 768) comes with no activation in between, so the two together are still one linear map.",
+      code: "x = Conv1d(10, 10, kernel_size=1)(x)   # W: (10, 10, 1), bias: (10,)\n# y[b, :, t] = W · x[b, :, t] + bias   for each t" },
+    { id: "perm2", label: "Permute back", sub: "", shape: [300, 5, 10], names: ["B", "T", "A"],
+      text: "Back to (B, T, A).", code: "x = x.permute(0, 2, 1)" },
+    { id: "l1", label: "Linear", sub: "10 → 768", shape: [300, 5, 768], names: ["B", "T", "768"],
+      text: "Make it wider: 4 × 192 = 768.", code: "x = Linear(10, 768)(x)" },
+    { id: "silu", label: "SiLU", sub: "activation", shape: [300, 5, 768], plot: "silu",
+      text: "SiLU(x) = x · σ(x), where σ(x) = 1 / (1 + e^(−x)) is the sigmoid. " +
+        "Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down " +
+        "(it has a small dip below 0, lowest about −0.28 at x ≈ −1.28). It looks like GELU, but uses the sigmoid instead of the Gaussian CDF. " +
+        "It is applied to each value alone, so the shape does not change.",
+      code: "x = silu(x)\n# SiLU(x) = x · σ(x) = x / (1 + e^(−x))" },
+    { id: "l2", label: "Linear", sub: "768 → 192", shape: [300, 5, 192], names: ["B", "T", "D"], tlabel: "act_emb",
+      text: "Final size 192, the same as z.", code: "act_emb = Linear(768, 192)(x)" },
+  ],
+});
+
+/* ======================================================================
+   Scene: ConditionalBlock (AdaLN-zero)
+   ====================================================================== */
+SCENES.condblock = {
+  id: "condblock",
+  title: "ConditionalBlock (1 of 6)",
+  nodes: {
+    xin:   { x: 75,   y: 200, w: 90,  h: 50, label: "x", sub: "tokens", kind: "io" },
+    cin:   { x: 75,   y: 560, w: 90,  h: 50, label: "c", sub: "actions", kind: "io" },
+    ada:   { x: 270,  y: 560, w: 180, h: 64, label: "adaLN_modulation", sub: "SiLU → Linear 192→1152", out: "(300, 3, 1152)" },
+    chunk: { x: 520,  y: 560, w: 150, h: 64, label: "chunk(6)", sub: "shift · scale · gate ×2", out: "6 × (300, 3, 192)" },
+    n1:    { x: 255,  y: 200, w: 150, h: 64, label: "norm1 + modulate", sub: "LN(x)·(1+scale)+shift", out: "(300, 3, 192)" },
+    attn:  { x: 445,  y: 200, w: 150, h: 64, label: "Attention", sub: "causal · 16 heads", zoom: "predattn", out: "(300, 3, 192)" },
+    g1:    { x: 635,  y: 200, w: 150, h: 64, label: "gate + residual", sub: "x + gate·attn", out: "(300, 3, 192)" },
+    n2:    { x: 825,  y: 200, w: 150, h: 64, label: "norm2 + modulate", sub: "LN(x)·(1+scale)+shift", out: "(300, 3, 192)" },
+    ffn:   { x: 1015, y: 200, w: 150, h: 64, label: "FeedForward", sub: "192 → 2048 → 192", zoom: "ffn", out: "(300, 3, 192)" },
+    g2:    { x: 1205, y: 200, w: 150, h: 64, label: "gate + residual", sub: "x + gate·mlp" },
+  },
+  edges: [
+    ["xin", "n1"], ["n1", "attn"], ["attn", "g1"], ["g1", "n2"], ["n2", "ffn"], ["ffn", "g2"],
+    ["cin", "ada"], ["ada", "chunk"],
+    ["chunk", "n1", { v: true }], ["chunk", "g1", { v: true }], ["chunk", "n2", { v: true }], ["chunk", "g2", { v: true }],
+    ["xin", "g1", { skip: true }], ["g1", "g2", { skip: true }],
+  ],
+  steps: [
+    {
+      title: "Block inputs",
+      text: "<b>x</b>: the 3 latent tokens from the previous block. <b>c</b>: the action embeddings. c is the same for all 6 blocks.",
+      op: "x = block(x, c)",
+      active: ["xin", "cin"],
+      t: {
+        x: { at: "xin", shape: [300, 3, 192], names: ["B", "T", "D"], kind: "tok", label: "x" },
+        c: { at: "cin", shape: [300, 3, 192], names: ["B", "T", "D"], kind: "act", label: "c" },
+      },
+    },
+    {
+      title: "Actions → modulation",
+      text: "<b>AdaLN</b> means <i>adaptive</i> LayerNorm. A normal LayerNorm has a fixed learned scale and shift. " +
+        "Here the scale and shift (and a gate) are <b>computed from the action</b>, so the action controls how the block changes x. " +
+        "This is the only way the actions enter the predictor; they are never added to the tokens.<br><br>" +
+        "adaLN_modulation is a small network: <b>SiLU</b> on c, then <b>Linear 192 → 1152</b> (1152 = 6 × 192: " +
+        "shift, scale and gate for attention, and the same 3 for the MLP). It has 192 × 1152 + 1152 = 222,336 parameters.<br><br>" +
+        "It works on each time step alone: position t gets its values from its own action a<sub>t</sub>. " +
+        "c is the same for all 6 blocks, but each block has its own adaLN_modulation weights, so each block can use the action in its own way.",
+      op: "m = self.adaLN_modulation(c)   # nn.Sequential(nn.SiLU(), nn.Linear(192, 1152))\n# c: (300, 3, 192) -> m: (300, 3, 1152)",
+      plot: "silu",
+      active: ["ada"], edges: ["cin>ada"],
+      t: { c: { via: "ada", at: "ada", shape: [300, 3, 1152], names: ["B", "T", "6·D"], kind: "mod", label: "modulation" } },
+    },
+    {
+      title: "Six modulation tensors",
+      text: "Split into 6 parts: shift, scale and gate for attention, and shift, scale and gate for the MLP. " +
+        "<b>Zero init</b>: the last linear layer starts at 0, so all gates are 0 and the block starts as the identity.",
+      op: "shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = m.chunk(6, dim=-1)",
+      active: ["chunk"], edges: ["ada>chunk"],
+      t: { c: { via: "chunk", at: "chunk", shape: [300, 3, 192], names: ["B", "T", "D"], mult: 6, label: "shift · scale · gate ×2" } },
+    },
+    {
+      title: "Norm + modulate (attention)",
+      text: "LayerNorm without learned weights, then the action sets the scale and shift of each feature.",
+      op: "h = modulate(self.norm1(x), shift_msa, scale_msa)\n# = norm1(x) * (1 + scale_msa) + shift_msa",
+      active: ["n1"], edges: ["xin>n1", "chunk>n1"],
+      t: { x: { via: "n1", at: "n1", label: "h" } },
+    },
+    {
+      title: "Causal self-attention",
+      text: "16 heads of size 64 (inner size 1024). Causal mask: position t only looks at positions 0…t.",
+      op: "h = self.attn(h)",
+      active: ["attn"], edges: ["n1>attn"], zoom: "attn",
+      t: { x: { via: "attn", at: "attn", label: "attn out" } },
+    },
+    {
+      title: "Gate + residual",
+      text: "The attention output is multiplied by the gate from the action, then added to x.",
+      op: "x = x + gate_msa * h",
+      active: ["g1"], edges: ["attn>g1", "chunk>g1", "xin>g1"],
+      t: { x: { via: "g1", at: "g1", label: "x" } },
+    },
+    {
+      title: "Norm + modulate (MLP)",
+      text: "Same as before, with the MLP shift and scale.",
+      op: "h = modulate(self.norm2(x), shift_mlp, scale_mlp)",
+      active: ["n2"], edges: ["g1>n2", "chunk>n2"],
+      t: { x: { via: "n2", at: "n2", label: "h" } },
+    },
+    {
+      title: "FeedForward",
+      text: "MLP on each time step alone: LayerNorm, 192 → 2048, GELU, 2048 → 192, with dropout (off in planning).",
+      op: "h = self.mlp(h)",
+      active: ["ffn"], edges: ["n2>ffn"], zoom: "ffn",
+      t: { x: { via: "ffn", at: "ffn", label: "mlp out" } },
+    },
+    {
+      title: "Gate + residual",
+      text: "Multiply by the MLP gate and add to x. This x goes to the next block.",
+      op: "x = x + gate_mlp * h",
+      active: ["g2"], edges: ["ffn>g2", "chunk>g2", "g1>g2"],
+      t: { x: { via: "g2", at: "g2", label: "x" } },
+    },
+  ],
+};
+
+chain({
+  id: "predattn", title: "Predictor attention (causal)", perRow: 5,
+  input: { label: "h", sub: "modulated x" },
+  x0: { shape: [300, 3, 192], names: ["B", "T", "D"], kind: "tok", label: "h" },
+  intro: "Attention over the <b>3 time steps</b> of one candidate. 16 heads × 64 = 1024, which is wider than D = 192. Dropout is off in planning (model.eval()).",
+  ops: [
+    { id: "norm", label: "LayerNorm", sub: "attn.norm", shape: [300, 3, 192],
+      text: "The Attention module has its own LayerNorm (with learned weights).", code: "h = self.norm(h)" },
+    { id: "qkv", label: "to_qkv", sub: "Linear 192 → 3072", shape: [300, 3, 3072], names: ["B", "T", "3·1024"],
+      text: "One linear layer (no bias) makes q, k and v together: 3 × 1024 = 3072.", code: "qkv = self.to_qkv(h)" },
+    { id: "chunk", label: "chunk(3)", sub: "q, k, v", shape: [300, 3, 1024], names: ["B", "T", "1024"], mult: 3, tlabel: "q, k, v",
+      text: "Cut into q, k and v.", code: "q, k, v = qkv.chunk(3, dim=-1)" },
+    { id: "heads", label: "Split heads", sub: "1024 = 16 × 64", shape: [300, 16, 3, 64], names: ["B", "heads", "T", "64"],
+      text: "16 heads of size 64.", code: 'q = rearrange(q, "b t (h d) -> b h t d", h=16)   # same for k, v' },
+    { id: "scores", label: "Causal scores", sub: "q · kᵀ / 8 + mask", shape: [300, 16, 3, 3], names: ["B", "heads", "T", "T"], mult: 0,
+      kind: "attn", grid: { n: 3, causal: true }, tlabel: "scores",
+      text: "A 3 × 3 table per head. The <b>causal mask</b> blocks the upper part: position t cannot look at future positions. " +
+        "So the prediction at t uses only frames 0…t.",
+      code: "F.scaled_dot_product_attention(q, k, v, is_causal=True)\n# inside: scores = q @ kᵀ / 8, masked above the diagonal" },
+    { id: "softmax", label: "Softmax", sub: "masked → weight 0", shape: [300, 16, 3, 3], tlabel: "attention weights",
+      text: "Softmax over each row. Masked places get weight 0. Row 0 can only look at itself.",
+      code: "weights = scores.softmax(dim=-1)   # dropout off in eval" },
+    { id: "mix", label: "× v", sub: "weighted sum", shape: [300, 16, 3, 64], names: ["B", "heads", "T", "64"], kind: "tok", grid: null,
+      tlabel: "head outputs", text: "Weighted sum of the value vectors.", code: "out = weights @ v" },
+    { id: "merge", label: "Merge heads", sub: "16 × 64 → 1024", shape: [300, 3, 1024], names: ["B", "T", "1024"], tlabel: "out",
+      text: "Heads side by side again.", code: 'out = rearrange(out, "b h t d -> b t (h d)")' },
+    { id: "out", label: "to_out", sub: "Linear 1024→192 + Dropout", shape: [300, 3, 192], names: ["B", "T", "D"], tlabel: "attn out",
+      text: "Back to 192 values per time step.", code: "out = self.to_out(out)" },
+  ],
+});
+
+chain({
+  id: "ffn", title: "Predictor FeedForward", perRow: 6,
+  input: { label: "h", sub: "modulated x" },
+  x0: { shape: [300, 3, 192], names: ["B", "T", "D"], kind: "tok", label: "h" },
+  intro: "The FeedForward of a ConditionalBlock. It works on each time step alone. Hidden size 2048.",
+  ops: [
+    { id: "ln", label: "LayerNorm", sub: "learned", shape: [300, 3, 192], text: "Its own LayerNorm, with learned weights.", code: "h = LayerNorm(192)(h)" },
+    { id: "l1", label: "Linear", sub: "192 → 2048", shape: [300, 3, 2048], names: ["B", "T", "2048"], text: "Make it wider.", code: "h = Linear(192, 2048)(h)" },
+    { id: "gelu", label: "GELU", sub: "activation", shape: [300, 3, 2048], plot: "gelu", text: "GELU(x) = x · Φ(x), where Φ is the standard Gaussian CDF: the chance that a N(0, 1) value is smaller than x. Large positive x pass almost unchanged, large negative x become almost 0, and values near 0 are smoothly scaled down. It is applied to each value alone, so the shape does not change.", code: "h = gelu(h)\n# GELU(x) = x · Φ(x) = 0.5 · x · (1 + erf(x / √2))" },
+    { id: "d1", label: "Dropout", sub: "p = 0.1", shape: [300, 3, 2048], text: "Off in planning: model.eval() turns dropout off, so this layer does nothing.", code: "h = Dropout(0.1)(h)" },
+    { id: "l2", label: "Linear", sub: "2048 → 192", shape: [300, 3, 192], names: ["B", "T", "D"], text: "Back to 192.", code: "h = Linear(2048, 192)(h)" },
+    { id: "d2", label: "Dropout", sub: "p = 0.1", shape: [300, 3, 192], tlabel: "mlp out", text: "Dropout again.", code: "h = Dropout(0.1)(h)" },
+  ],
+});
+
+/* ======================================================================
+   Rendering
+   ====================================================================== */
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), sceneEl = $("scene"), wrap = $("stage-wrap");
+const nodeLayer = $("node-layer"), edgeLayer = $("edge-layer"), tensorLayer = $("tensor-layer");
+const KIND_COLOR = (k) => `var(--k-${k || "tok"})`;
+
+const stack = [{ id: "top", i: 0 }];
+let els = {};          // tensor id -> element
+let nodeEls = {};      // node id -> element
+let edgeEls = {};      // edge key -> path
+let timers = [];
+let playTimer = null;
+
+function cur() { const f = stack[stack.length - 1]; return { f, scene: SCENES[f.id], i: f.i }; }
+
+function fit() {
+  const s = wrap.clientWidth / W;
+  stage.style.transform = `scale(${s})`;
+  wrap.style.height = H * s + "px";
+}
+
+function route(a, b, opt) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (opt && opt.skip) {
+    const top = Math.min(a.y - a.h / 2, b.y - b.h / 2) - 62;
+    const sx = a.x + 8, ex = b.x - 8;
+    return `M${sx},${a.y - a.h / 2} C${sx},${top} ${ex},${top} ${ex},${b.y - b.h / 2}`;
+  }
+  const horiz = !(opt && opt.v) && Math.abs(dx) > (a.w + b.w) / 2;
+  if (horiz) {
+    const s = Math.sign(dx), sx = a.x + s * a.w / 2, ex = b.x - s * b.w / 2;
+    if (Math.abs(dy) < 4) return `M${sx},${a.y} L${ex},${b.y}`;
+    const mx = opt && opt.mx ? opt.mx : (sx + ex) / 2;
+    return `M${sx},${a.y} L${mx},${a.y} L${mx},${b.y} L${ex},${b.y}`;
+  }
+  const s = Math.sign(dy) || 1, sy = a.y + s * a.h / 2, ey = b.y - s * b.h / 2;
+  if (Math.abs(dx) < 4) return `M${a.x},${sy} L${b.x},${ey}`;
+  const my = (sy + ey) / 2;
+  return `M${a.x},${sy} L${a.x},${my} L${b.x},${my} L${b.x},${ey}`;
+}
+
+function buildScene() {
+  const { scene } = cur();
+  nodeLayer.innerHTML = ""; edgeLayer.innerHTML = ""; tensorLayer.innerHTML = "";
+  els = {}; nodeEls = {}; edgeEls = {};
+  timers.forEach(clearTimeout); timers = [];
+  $("scene-title").textContent = scene.title;
+  for (const [a, b, opt] of scene.edges) {
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", route(scene.nodes[a], scene.nodes[b], opt));
+    p.setAttribute("class", "edge" + (opt && opt.skip ? " skip" : ""));
+    edgeLayer.appendChild(p);
+    edgeEls[a + ">" + b] = p;
+  }
+  for (const id in scene.nodes) {
+    const n = scene.nodes[id];
+    const el = document.createElement("div");
+    el.className = "node" + (n.kind === "io" ? " io" : "") + (n.zoom ? " zoomable" : "");
+    Object.assign(el.style, { left: n.x - n.w / 2 + "px", top: n.y - n.h / 2 + "px", width: n.w + "px", height: n.h + "px" });
+    el.innerHTML = `<div class="n-label">${n.label}</div>` + (n.sub ? `<div class="n-sub">${n.sub}</div>` : "") +
+      (n.zoom ? `<div class="zoom" title="Zoom in">+</div>` : "") +
+      (n.out ? `<div class="n-out">→ ${n.out}</div>` : "");
+    if (n.zoom) {
+      el.title = "Click to see inside";
+      el.addEventListener("click", () => zoomIn(id));
+    }
+    nodeLayer.appendChild(el);
+    nodeEls[id] = el;
+  }
+}
+
+function computeState(scene, i) {
+  const st = {};
+  for (let k = 0; k <= i; k++) {
+    for (const id in st) if (st[id].gone) delete st[id];
+    const t = scene.steps[k].t || {};
+    for (const id in t) {
+      const p = t[id];
+      if (p === null) { delete st[id]; continue; }
+      if (p.gone) { if (st[id]) st[id] = Object.assign({}, st[id], { gone: p.gone, step: k }); continue; }
+      const prev = st[id] || {};
+      const next = Object.assign({}, prev, p, { step: k });
+      if (!("via" in p)) delete next.via;
+      if (!("from" in p)) delete next.from;
+      if (!("dx" in p) && Array.isArray(p.at)) delete next.dx;
+      st[id] = next;
+    }
+  }
+  return st;
+}
+
+function centerOf(scene, nodeId) {
+  const n = scene.nodes[nodeId];
+  return { x: n.x, y: n.y - 30 };
+}
+
+function resolvePos(scene, sp) {
+  if (sp.gone) return centerOf(scene, sp.gone);
+  if (Array.isArray(sp.at)) return { x: sp.at[0], y: sp.at[1] };
+  const n = scene.nodes[sp.at];
+  return { x: n.x + (sp.dx || 0), y: n.y + n.h / 2 + 12 + (sp.dy || 0) };
+}
+
+function size(n) { return Math.round(10 + 8.5 * Math.log2(Math.max(n, 1))); }
+
+function fillTensor(el, sp) {
+  const shape = sp.shape || [];
+  el.style.setProperty("--c", KIND_COLOR(sp.kind));
+  let gfx = el.querySelector(".t-gfx");
+  if (!gfx) {
+    el.innerHTML = `<div class="t-name"></div><div class="t-gfx"></div><div class="t-shape"></div><div class="t-dims"></div>`;
+    gfx = el.querySelector(".t-gfx");
+  }
+  el.querySelector(".t-name").textContent = sp.label || "";
+  const rank = shape.length;
+  let w, h, layers = 1, off = 0, inner = "";
+  gfx.classList.toggle("scalar", rank === 0);
+  if (sp.grid) {
+    const cells = Math.min(sp.grid.n, 13);
+    w = h = sp.grid.n <= 4 ? cells * 16 : 66;
+    layers = rank >= 3 ? 3 : 1; off = layers > 1 ? 5 : 0;
+    let c = "";
+    for (let r = 0; r < cells; r++) for (let q = 0; q < cells; q++) {
+      const masked = sp.grid.causal && q > r;
+      const v = masked ? 0 : 0.18 + 0.82 * Math.abs(Math.sin(r * 12.9898 + q * 78.233 + cells) * 43758.5453 % 1);
+      c += masked ? `<i class="m"></i>` : `<i style="opacity:${v.toFixed(2)}"></i>`;
+    }
+    inner = `<div class="t-grid" style="grid-template-columns:repeat(${cells},1fr);left:0;bottom:0;width:calc(100% - ${2 * off}px);height:calc(100% - ${2 * off}px)">${c}</div>`;
+  } else if (rank === 0) {
+    w = h = 20;
+  } else if (rank === 1) {
+    w = size(shape[0]); h = 10;
+  } else {
+    w = size(shape[rank - 1]); h = Math.round(size(shape[rank - 2]) * 0.72);
+    if (rank >= 3 || sp.mult) { layers = 3; off = 5; }
+  }
+  gfx.style.width = w + 2 * off + "px";
+  gfx.style.height = h + 2 * off + "px";
+  let html = "";
+  for (let k = layers - 1; k >= 0; k--) {
+    if (sp.grid && k === 0) continue;
+    const alpha = [0.85, 0.5, 0.3][k];
+    const tint = sp.mult && k > 0 ? "filter:hue-rotate(" + k * 35 + "deg);" : "";
+    html += `<div class="t-layer" style="left:${k * off}px;bottom:${k * off}px;width:calc(100% - ${2 * off}px);height:calc(100% - ${2 * off}px);opacity:${alpha};${tint}"></div>`;
+  }
+  gfx.innerHTML = html + inner;
+  const shapeTxt = rank === 0 ? "() scalar" : "(" + shape.join(", ") + ")";
+  el.querySelector(".t-shape").innerHTML = shapeTxt + (sp.mult ? `<span class="t-mult">×${sp.mult}</span>` : "");
+  el.querySelector(".t-dims").textContent = (sp.names || []).join(" · ");
+}
+
+function place(el, p, opacity, instant) {
+  if (instant) el.classList.add("noanim");
+  el.style.left = p.x + "px";
+  el.style.top = p.y + "px";
+  el.style.opacity = opacity === undefined ? "" : opacity;
+  if (instant) { void el.offsetWidth; el.classList.remove("noanim"); }
+}
+
+function pulse(nodeId) {
+  const el = nodeEls[nodeId];
+  if (!el) return;
+  el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse");
+}
+
+function render(dir) {
+  timers.forEach(clearTimeout); timers = [];
+  const { scene, i } = cur();
+  const step = scene.steps[i];
+  const st = computeState(scene, i);
+
+  // nodes
+  const active = new Set(step.active || []);
+  const done = new Set();
+  scene.steps.slice(0, i).forEach((s) => (s.active || []).forEach((a) => done.add(a)));
+  for (const id in nodeEls) {
+    nodeEls[id].classList.toggle("active", active.has(id));
+    nodeEls[id].classList.toggle("done", !active.has(id) && done.has(id));
+  }
+
+  // edges
+  const actE = new Set(step.edges || []);
+  const doneE = new Set();
+  scene.steps.slice(0, i).forEach((s) => (s.edges || []).forEach((e) => doneE.add(e)));
+  for (const k in edgeEls) {
+    const p = edgeEls[k];
+    p.classList.toggle("active", actE.has(k));
+    p.classList.toggle("done", !actE.has(k) && doneE.has(k));
+    p.setAttribute("marker-end", actE.has(k) ? "url(#arr-a)" : "url(#arr)");
+  }
+  // draw active edges on top
+  actE.forEach((k) => { if (edgeEls[k]) edgeLayer.appendChild(edgeEls[k]); });
+
+  // tensors
+  for (const id in st) {
+    const sp = st[id];
+    const fresh = sp.step === i;
+    const pos = resolvePos(scene, sp);
+    const op = sp.gone ? 0 : undefined;
+    let el = els[id];
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "tensor";
+      tensorLayer.appendChild(el);
+      els[id] = el;
+      fillTensor(el, sp);
+      const start = fresh && sp.from && dir === 1 ? centerOf(scene, sp.from) : pos;
+      place(el, start, 0, true);
+      if (fresh && sp.from && dir === 1) pulse(sp.from);
+      requestAnimationFrame(() => requestAnimationFrame(() => place(el, pos, op)));
+    } else if (dir === 1 && fresh && sp.via && !sp.gone) {
+      place(el, centerOf(scene, sp.via), 1);
+      timers.push(setTimeout(() => { pulse(sp.via); fillTensor(el, sp); place(el, pos, op); }, 600));
+    } else {
+      fillTensor(el, sp);
+      place(el, pos, op);
+      if (sp.gone && fresh && dir === 1) timers.push(setTimeout(() => pulse(sp.gone), 450));
+    }
+    el.classList.toggle("hot", fresh && !sp.gone);
+  }
+  for (const id in els) {
+    if (!(id in st)) {
+      const el = els[id];
+      delete els[id];
+      el.style.opacity = 0;
+      setTimeout(() => el.remove(), 600);
+    }
+  }
+
+  renderPanel(scene, i, step, st);
+  renderChrome(scene, i);
+  try { history.replaceState(null, "", "#" + stack.map((f) => f.id + "." + (f.i + 1)).join("/")); } catch (e) { /* file:// may block */ }
+}
+
+/* Read "#top.9/predictor.3" (1-based steps) into the zoom stack. */
+function loadHash() {
+  const parts = decodeURIComponent(location.hash.slice(1)).split("/").filter(Boolean);
+  const out = [];
+  for (const p of parts) {
+    const [id, num] = p.split(".");
+    const scene = SCENES[id];
+    if (!scene || (out.length === 0 && id !== "top")) break;
+    if (out.length) {
+      const parent = SCENES[out[out.length - 1].id];
+      const from = Object.keys(parent.nodes).find((k) => parent.nodes[k].zoom === id);
+      if (!from) break;
+      out[out.length] = { id, from };
+    } else out.push({ id });
+    const f = out[out.length - 1];
+    f.i = Math.min(Math.max((parseInt(num, 10) || 1) - 1, 0), scene.steps.length - 1);
+  }
+  if (out.length) { stack.length = 0; stack.push(...out); }
+}
+
+function stepZoomNode(scene, step) {
+  if (step.zoom) return step.zoom;
+  const z = (step.active || []).filter((a) => scene.nodes[a] && scene.nodes[a].zoom);
+  return z.length === 1 ? z[0] : null;
+}
+
+function renderPanel(scene, i, step, st) {
+  const n = scene.steps.length;
+  let html = `<div class="p-step">Step ${i + 1} of ${n} · ${scene.title}</div><h2>${step.title}</h2>`;
+  if (step.text) html += `<p class="p-text">${step.text}</p>`;
+  if (step.plot) html += plotSvg(PLOTS[step.plot]);
+  if (step.op) html += `<pre class="p-op">${escapeHtml(step.op)}</pre>`;
+  const rows = [];
+  for (const id in st) {
+    const sp = st[id];
+    if (sp.step !== i) continue;
+    const shape = (sp.shape || []).length ? "(" + sp.shape.join(", ") + ")" : "() scalar";
+    if (sp.gone) {
+      rows.push(`<div class="p-t" style="--c:${KIND_COLOR(sp.kind)}"><span class="dot"></span><span class="nm">${sp.label}</span><span class="gone">used by ${scene.nodes[sp.gone].label}</span></div>`);
+    } else {
+      rows.push(`<div class="p-t" style="--c:${KIND_COLOR(sp.kind)}"><span class="dot"></span><span class="nm">${sp.label}</span>` +
+        `<span class="sh">${shape}${sp.mult ? " ×" + sp.mult : ""}</span></div>`);
+    }
+  }
+  if (rows.length) html += `<div class="p-tensors">${rows.join("")}</div>`;
+  const z = stepZoomNode(scene, step);
+  if (z) {
+    html += `<div class="callout">This step has inner steps. You can zoom in, or press <kbd>→</kbd> to go on.<br>` +
+      `<button class="btn" id="p-zoom">Zoom into ${scene.nodes[z].label} <kbd>Enter</kbd></button></div>`;
+  }
+  if (i === n - 1 && stack.length > 1) {
+    const parent = SCENES[stack[stack.length - 2].id];
+    html += `<div class="callout end">End of ${scene.title}. Press <kbd>→</kbd> to go back to <b>${parent.title}</b>.</div>`;
+  }
+  html += `<div class="legend"><h3>Sizes</h3><table>
+    <tr><td>E, B</td><td>envs per solver call: 1</td></tr>
+    <tr><td>S</td><td>candidates: 300 (B·S = 300 rows)</td></tr>
+    <tr><td>H</td><td>horizon: 5 action blocks</td></tr>
+    <tr><td>A</td><td>one block: 10 (5 env steps × 2)</td></tr>
+    <tr><td>K</td><td>elites: 30</td></tr>
+    <tr><td>T</td><td>latents in the predictor window: ≤ 3</td></tr>
+    <tr><td>D</td><td>latent size: 192</td></tr>
+  </table>
+  <p style="margin:8px 0 0">Real numbers from one episode: <a href="lewm_planning.html">lewm_planning.html</a>. Training: <a href="lewm_training.html">lewm_training.html</a>.</p>
+  <div class="keys"><kbd>←</kbd> <kbd>→</kbd> step · <kbd>Space</kbd> play · <kbd>Home</kbd> reset · <kbd>Enter</kbd> zoom in · <kbd>Esc</kbd> zoom out</div></div>`;
+  $("panel").innerHTML = html;
+  const zb = $("p-zoom");
+  if (zb) zb.addEventListener("click", () => zoomIn(z));
+}
+
+/* Small function graphs for activation steps. */
+/* erf, Abramowitz & Stegun 7.1.26 (error < 1.5e-7) */
+function erf(x) {
+  const s = Math.sign(x), a = Math.abs(x), t = 1 / (1 + 0.3275911 * a);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a);
+  return s * y;
+}
+const silu = (x) => x / (1 + Math.exp(-x));
+const gelu = (x) => 0.5 * x * (1 + erf(x / Math.SQRT2));
+const PHI = (t) => Math.exp(-t * t / 2);
+const KNOTS = Array.from({ length: 17 }, (_, k) => 3 * k / 16);
+const ACT_X = { x: [-5, 5], y: [-1, 5], xt: 2, yt: 1, gx: 1, gy: 1, ref: true };
+const PLOTS = {
+  silu: Object.assign({}, ACT_X, {
+    caption: "SiLU(x) = x · σ(x)",
+    series: [{ f: silu, color: "var(--k-act)" }],
+    mark: { x: -1.278, y: -0.278, label: "min ≈ −0.28", color: "var(--k-act)" },
+  }),
+  gelu: Object.assign({}, ACT_X, {
+    caption: "GELU(x) = x · Φ(x)",
+    series: [
+      { f: silu, color: "#b0b7c3", width: 1.6, dash: "5 3", label: "SiLU (for comparison)" },
+      { f: gelu, color: "var(--k-tok)", label: "GELU" },
+    ],
+    mark: { x: -0.752, y: -0.170, label: "min ≈ −0.17", color: "var(--k-tok)" },
+  }),
+  ecf: {
+    caption: "Real part of φ(t): target and 3 bad cases",
+    x: [0, 3], y: [0, 1.1], xt: 0.5, yt: 0.25, gx: 0.5, gy: 0.25,
+    series: [
+      { f: () => 1, color: "var(--k-loss)", width: 1.8, dash: "6 3", label: "collapsed: all x = 0" },
+      { f: (t) => Math.exp(-2 * t * t), color: "var(--k-act)", width: 1.8, dash: "2 3", label: "too spread: std 2" },
+      { f: (t) => Math.exp(-t * t / 8), color: "var(--k-tok)", width: 1.8, dash: "8 3 2 3", label: "too narrow: std 0.5" },
+      { f: PHI, color: "var(--k-emb)", label: "target N(0, 1): e^(−t²/2)" },
+    ],
+    points: { xs: KNOTS, f: PHI, color: "var(--k-emb)", label: "17 knots" },
+  },
+  weights: {
+    caption: "Weight of each knot: trapezoid × e^(−t²/2)",
+    x: [0, 3], y: [0, 0.4], xt: 0.5, yt: 0.1, gx: 0.5, gy: 0.1,
+    series: [{ f: (t) => 0.375 * PHI(t), color: "#b0b7c3", width: 1.4, dash: "4 3", label: "2·dt · e^(−t²/2)" }],
+    points: { xs: KNOTS, f: (t, k) => (k === 0 || k === 16 ? 0.1875 : 0.375) * PHI(t), stem: true, color: "var(--k-emb)", label: "weights (ends: half)" },
+  },
+};
+
+function fmt(v) { return Math.abs(v) < 1e-9 ? "0" : (+v.toFixed(2)).toString(); }
+
+function plotSvg(pl) {
+  const w = 320, h = 190, padL = 34, padR = 10, padT = 22, padB = 22;
+  const [x0, x1] = pl.x, [y0, y1] = pl.y;
+  const X = (x) => padL + (x - x0) / (x1 - x0) * (w - padL - padR);
+  const Y = (y) => padT + (y1 - y) / (y1 - y0) * (h - padT - padB);
+  const steps = (a, b, st) => { const r = []; for (let v = Math.ceil(a / st - 1e-9) * st; v <= b + 1e-9; v += st) r.push(v); return r; };
+  let grid = "", ticks = "";
+  steps(x0, x1, pl.gx).forEach((x) => { grid += `<line x1="${X(x)}" y1="${Y(y0)}" x2="${X(x)}" y2="${Y(y1)}" stroke="#eef0f3"/>`; });
+  steps(y0, y1, pl.gy).forEach((y) => { grid += `<line x1="${X(x0)}" y1="${Y(y)}" x2="${X(x1)}" y2="${Y(y)}" stroke="#eef0f3"/>`; });
+  steps(x0, x1, pl.xt).forEach((x) => { ticks += `<text x="${X(x)}" y="${h - 6}" text-anchor="middle">${fmt(x)}</text>`; });
+  steps(y0, y1, pl.yt).forEach((y) => { ticks += `<text x="${padL - 6}" y="${Y(y) + 3.5}" text-anchor="end">${fmt(y)}</text>`; });
+  let axes = "";
+  if (y0 <= 0 && y1 >= 0) axes += `<line x1="${X(x0)}" y1="${Y(0)}" x2="${X(x1)}" y2="${Y(0)}" stroke="#98a2b3"/>`;
+  if (x0 <= 0 && x1 >= 0) axes += `<line x1="${X(0)}" y1="${Y(y0)}" x2="${X(0)}" y2="${Y(y1)}" stroke="#98a2b3"/>`;
+  const ref = pl.ref ? `<line x1="${X(y0)}" y1="${Y(y0)}" x2="${X(y1)}" y2="${Y(y1)}" stroke="#98a2b3" stroke-dasharray="3 3"/>` +
+    `<text x="${X(3.6)}" y="${Y(4.3)}" text-anchor="end">y = x</text>` : "";
+  let curves = "";
+  for (const se of pl.series) {
+    let d = "";
+    for (let k = 0; k <= 200; k++) {
+      const x = x0 + (x1 - x0) * k / 200;
+      d += (k ? "L" : "M") + X(x).toFixed(1) + "," + Y(se.f(x)).toFixed(1);
+    }
+    curves += `<path d="${d}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2.4}"` + (se.dash ? ` stroke-dasharray="${se.dash}"` : "") + `/>`;
+  }
+  let pts = "";
+  if (pl.points) {
+    pl.points.xs.forEach((x, k) => {
+      const y = pl.points.f(x, k);
+      if (pl.points.stem) pts += `<line x1="${X(x)}" y1="${Y(0)}" x2="${X(x)}" y2="${Y(y)}" stroke="${pl.points.color}" stroke-width="2"/>`;
+      pts += `<circle cx="${X(x)}" cy="${Y(y)}" r="2.6" fill="${pl.points.color}"/>`;
+    });
+  }
+  const m = pl.mark ? `<circle cx="${X(pl.mark.x)}" cy="${Y(pl.mark.y)}" r="3.5" fill="${pl.mark.color}"/>` +
+    `<text x="${X(pl.mark.x) - 4}" y="${Y(pl.mark.y) + 15}" text-anchor="end">${pl.mark.label}</text>` : "";
+  const cap = `<text class="cap" x="${padL}" y="14">${pl.caption}</text>`;
+  const items = pl.series.filter((se) => se.label).map((se) =>
+    `<span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="${se.color}" stroke-width="${se.width || 2.4}"` +
+    (se.dash ? ` stroke-dasharray="${se.dash}"` : "") + `/></svg>${se.label}</span>`);
+  if (pl.points && pl.points.label) items.push(`<span><svg width="22" height="8"><circle cx="11" cy="4" r="2.6" fill="${pl.points.color}"/></svg>${pl.points.label}</span>`);
+  const legend = items.length > 1 || pl.points ? `<div class="p-legend">${items.join("")}</div>` : "";
+  return `<div class="p-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Graph: ${pl.caption}">` +
+    grid + axes + ref + curves + pts + m + ticks + cap + `</svg>${legend}</div>`;
+}
+
+function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function renderChrome(scene, i) {
+  const n = scene.steps.length;
+  const slider = $("slider");
+  slider.max = n - 1; slider.value = i;
+  $("counter").textContent = `${i + 1} / ${n}`;
+  $("b-prev").disabled = i === 0 && stack.length === 1;
+  $("b-next").disabled = i === n - 1 && stack.length === 1;
+  $("b-out").disabled = stack.length === 1;
+  $("b-reset").disabled = stack.length === 1 && i === 0;
+  const crumbs = $("crumbs");
+  crumbs.innerHTML = "";
+  stack.forEach((f, k) => {
+    if (k) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "›"; crumbs.appendChild(s); }
+    const b = document.createElement("button");
+    b.textContent = SCENES[f.id].title;
+    if (k === stack.length - 1) b.className = "here";
+    else b.addEventListener("click", () => popTo(k));
+    crumbs.appendChild(b);
+  });
+}
+
+/* ======================================================================
+   Navigation
+   ====================================================================== */
+function animateScene(cls, origin) {
+  sceneEl.style.transformOrigin = origin ? `${origin.x}px ${origin.y}px` : "50% 50%";
+  sceneEl.classList.remove("anim-in", "anim-out");
+  void sceneEl.offsetWidth;
+  sceneEl.classList.add(cls);
+}
+
+function next() {
+  const { f, scene, i } = cur();
+  if (i < scene.steps.length - 1) { f.i++; render(1); }
+  else if (stack.length > 1) popTo(stack.length - 2);
+  else stopPlay();
+}
+
+function prev() {
+  const { f, i } = cur();
+  if (i > 0) { f.i--; render(-1); }
+  else if (stack.length > 1) popTo(stack.length - 2);
+}
+
+function zoomIn(nodeId) {
+  const { scene } = cur();
+  const n = scene.nodes[nodeId];
+  if (!n || !n.zoom) return;
+  stack.push({ id: n.zoom, i: 0, from: nodeId });
+  buildScene();
+  animateScene("anim-in", { x: n.x, y: n.y });
+  render(1);
+}
+
+function popTo(k) {
+  if (k >= stack.length - 1) return;
+  const from = stack[k + 1].from;
+  stack.length = k + 1;
+  const n = cur().scene.nodes[from];
+  buildScene();
+  animateScene("anim-out", n ? { x: n.x, y: n.y } : null);
+  render(0);
+}
+
+/* Stop playing, leave all zoom levels and go to step 1 of the planning step. */
+function reset() {
+  stopPlay();
+  const zoomed = stack.length > 1;
+  const from = zoomed ? stack[1].from : null;
+  stack.length = 1;
+  stack[0].i = 0;
+  buildScene();
+  if (zoomed) animateScene("anim-out", SCENES.top.nodes[from]);
+  render(0);
+}
+
+function togglePlay() { playTimer ? stopPlay() : startPlay(); }
+function startPlay() {
+  playTimer = setInterval(next, 2600);
+  $("b-play").textContent = "❚❚ Pause";
+  next();
+}
+function stopPlay() {
+  clearInterval(playTimer); playTimer = null;
+  $("b-play").textContent = "▶ Play";
+}
+
+$("b-next").addEventListener("click", next);
+$("b-reset").addEventListener("click", reset);
+$("b-prev").addEventListener("click", prev);
+$("b-play").addEventListener("click", togglePlay);
+$("b-out").addEventListener("click", () => popTo(stack.length - 2));
+$("slider").addEventListener("input", (e) => {
+  const { f } = cur();
+  const v = +e.target.value;
+  const dir = v === f.i + 1 ? 1 : 0;
+  f.i = v; render(dir);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.key !== "Escape" && e.key !== " ") return;
+  if (e.key === "ArrowRight") { e.preventDefault(); next(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); prev(); }
+  else if (e.key === "Home") { e.preventDefault(); reset(); }
+  else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "Enter") {
+    const { scene, i } = cur();
+    const z = stepZoomNode(scene, scene.steps[i]);
+    if (z) { e.preventDefault(); zoomIn(z); }
+  } else if (e.key === "Escape") { popTo(stack.length - 2); }
+});
+window.addEventListener("resize", fit);
+
+loadHash();
+fit();
+buildScene();
+render(0);
+</script>
+</body>
+</html>

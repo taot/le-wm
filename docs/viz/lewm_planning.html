@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeWM Planning Episode</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --ink: #1d2433;
+  --muted: #667085;
+  --line: #d0d5dd;
+  --line-soft: #e4e7ec;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+  --k-pix: #3b82f6;
+  --k-emb: #0d9488;
+  --k-act: #d97706;
+  --k-pred: #db2777;
+  --k-loss: #dc2626;
+  --k-ok: #16a34a;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button { font: inherit; }
+
+/* ---------- header ---------- */
+header { position: sticky; top: 0; z-index: 10; background: var(--card);
+  border-bottom: 1px solid var(--line-soft); padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 500; }
+#crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1 1 260px; min-width: 0; }
+#crumbs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; color: var(--accent); cursor: pointer; }
+#crumbs button:hover { background: var(--accent-soft); }
+#crumbs .here { color: var(--ink); font-weight: 600; cursor: default; }
+#crumbs .here:hover { background: none; }
+#crumbs .sep { color: var(--muted); }
+.controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  padding: 5px 11px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
+#slider { width: 140px; accent-color: var(--accent); }
+#counter { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 64px; text-align: right; }
+
+/* ---------- layout ---------- */
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; align-items: start; }
+@media (max-width: 960px) { main { grid-template-columns: minmax(0, 1fr); } }
+#stage-wrap { background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; position: relative; }
+#stage { position: absolute; left: 0; top: 0; width: 1300px; height: 760px; transform-origin: 0 0; }
+#scene { position: absolute; inset: 0;
+  background-image: radial-gradient(circle, #e6e9ef 1px, transparent 1.2px); background-size: 22px 22px; }
+#scene.anim-in { animation: zin 0.55s cubic-bezier(.2,.7,.2,1); }
+#scene.anim-out { animation: zout 0.5s cubic-bezier(.2,.7,.2,1); }
+@keyframes zin { from { transform: scale(0.25); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes zout { from { transform: scale(2.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+#scene-title { position: absolute; left: 22px; top: 12px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+svg#view { position: absolute; inset: 0; width: 1300px; height: 760px; overflow: visible; }
+
+/* ---------- stage drawing ---------- */
+#view text { font: 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: var(--muted); }
+#view text.cap { font-weight: 600; fill: var(--ink); font-size: 13px; }
+#view text.tick { font: 10.5px var(--mono); }
+#view text.big { font-size: 15px; font-weight: 600; fill: var(--ink); }
+#view .box { fill: var(--card); stroke: var(--line-soft); }
+#view .grid { stroke: #eef0f3; }
+#view .axis { stroke: #98a2b3; }
+#view .card { cursor: pointer; }
+#view .card rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; transition: stroke .3s; }
+#view .card:hover rect { stroke: var(--accent); }
+#view .card.active rect { stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 5px rgba(37,99,235,.35)); }
+#view .card.done rect { stroke: #98a2b3; }
+#view .draw { stroke-dasharray: 600; stroke-dashoffset: 600; animation: draw 1.1s ease forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+#view .fade { animation: fadein .6s ease; }
+@keyframes fadein { from { opacity: 0; } }
+
+/* ---------- panel ---------- */
+#panel { background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; padding: 16px 18px; }
+.p-step { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+#panel h2 { font-size: 19px; margin: 4px 0 10px; letter-spacing: -0.01em; }
+.p-text { margin: 0 0 12px; }
+.p-text b { font-weight: 600; }
+.p-op { font-family: var(--mono); font-size: 12.5px; background: #f2f4f7; border-radius: 8px; padding: 9px 11px;
+  margin: 0 0 12px; white-space: pre-wrap; word-break: break-word; }
+.p-nums { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 12px; font-size: 13px; }
+.p-nums .k { color: var(--muted); }
+.p-nums .v { font-family: var(--mono); font-size: 12.5px; }
+.callout { border: 1px solid #c7d7fe; background: #eef4ff; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.callout .btn { margin-top: 8px; }
+.callout.end { border-color: var(--line); background: #f8f9fb; }
+.legend { border-top: 1px solid var(--line-soft); padding-top: 12px; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.legend h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 6px; color: var(--ink); }
+.legend table { border-collapse: collapse; width: 100%; }
+.legend td { padding: 2px 0; vertical-align: top; }
+.legend td:first-child { font-family: var(--mono); color: var(--ink); width: 54px; }
+.keys { margin-top: 10px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; color: var(--ink); }
+#nodata { padding: 40px; font-size: 15px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">LeWM <span>· one planning episode</span></div>
+  <nav id="crumbs" aria-label="Zoom level"></nav>
+  <div class="controls">
+    <button class="btn" id="b-reset" title="Back to the beginning (Home)">⟲ Reset</button>
+    <button class="btn" id="b-out" title="Zoom out (Esc)">⤴ Zoom out</button>
+    <button class="btn" id="b-play" title="Play / pause (Space)">▶ Play</button>
+    <button class="btn" id="b-prev" title="Previous (←)">← Prev</button>
+    <button class="btn primary" id="b-next" title="Next (→)">Next →</button>
+    <input type="range" id="slider" min="0" max="1" value="0" aria-label="Step">
+    <span id="counter"></span>
+  </div>
+</header>
+<main>
+  <section id="stage-wrap">
+    <div id="stage">
+      <div id="scene">
+        <div id="scene-title"></div>
+        <svg id="view" viewBox="0 0 1300 760"></svg>
+      </div>
+    </div>
+  </section>
+  <aside id="panel"></aside>
+</main>
+
+<!-- Real data from scripts/dump_planning.py (one Push-T eval episode on the GPU pod). -->
+<script src="lewm_planning_data.js"></script>
+<script>
+"use strict";
+const W = 1300, H = 760;
+const $ = (id) => document.getElementById(id);
+const DATA = window.LEWM_PLAN;
+if (!DATA) {
+  document.querySelector("main").innerHTML =
+    `<div id="nodata">No data. Put <code>lewm_planning_data.js</code> next to this page. ` +
+    `Make it with <code>python scripts/dump_planning.py policy=&lt;ckpt&gt; eval.img_size=112</code>.</div>`;
+  throw new Error("LEWM_PLAN missing");
+}
+const M = DATA.meta;
+
+/* ======================================================================
+   Data decoding
+   ====================================================================== */
+/* q16 / q8 blocks from the dump script: base64 int16 (little endian) or int8, value = q * scale. */
+function deq(o) {
+  const bin = atob(o.b64);
+  let out;
+  if (o.int8) {
+    out = new Float32Array(bin.length);
+    for (let i = 0; i < bin.length; i++) { let v = bin.charCodeAt(i); if (v > 127) v -= 256; out[i] = v * o.scale; }
+  } else {
+    out = new Float32Array(bin.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+      if (v > 32767) v -= 65536;
+      out[i] = v * o.scale;
+    }
+  }
+  return out;
+}
+
+const STEPS = DATA.steps;                       // env frames: index = env step
+const IMG = STEPS.map((s) => "data:image/jpeg;base64," + s.img);
+const GOAL_IMG = "data:image/jpeg;base64," + DATA.goal.img;
+const GOAL = DATA.goal.state;
+const S = M.num_samples, I = M.n_steps, K = M.topk, HB = M.horizon, BLK = M.action_block;
+const T_LAT = HB + 1;                           // z0 + one latent per action block
+const N_ACT = HB * BLK;                         // env steps in one plan
+
+const PLANS = DATA.plans.map((p) => {
+  const cost = deq(p.cost), lat = deq(p.lat), act = deq(p.act);
+  const c = (it, s) => cost[it * S + s];
+  let lo = Infinity, hi = -Infinity;
+  for (const v of cost) { const l = Math.log10(Math.max(v, 1e-3)); lo = Math.min(lo, l); hi = Math.max(hi, l); }
+  // per-iteration cost stats
+  const stats = [];
+  for (let it = 0; it < I; it++) {
+    const row = Array.from(cost.subarray(it * S, (it + 1) * S));
+    const el = p.elite[it].map((s) => row[s]);
+    stats.push({
+      min: Math.min(...row), mean: row.reduce((a, b) => a + b, 0) / S,
+      elite: el.reduce((a, b) => a + b, 0) / K, thr: Math.max(...el),
+      cand0: row[0],
+      std: p.std_norm[it].flat().reduce((a, b) => a + b, 0) / (HB * BLK * 2),
+    });
+  }
+  // fixed latent-view bounds per plan (robust: 2nd..98th percentile of final points)
+  const xs = [], ys = [];
+  for (let it = 0; it < I; it++) for (let s = 0; s < S; s += 3) for (let t = 0; t < T_LAT; t++) {
+    const k = ((it * S + s) * T_LAT + t) * 2; xs.push(lat[k]); ys.push(lat[k + 1]);
+  }
+  const q = (a, f) => { const b = a.slice().sort((x, y) => x - y); return b[Math.floor(f * (b.length - 1))]; };
+  const box = {
+    x0: Math.min(q(xs, 0.02), 0, p.goal_xy[0]), x1: Math.max(q(xs, 0.98), 0, p.goal_xy[0]),
+    y0: Math.min(q(ys, 0.02), 0, p.goal_xy[1]), y1: Math.max(q(ys, 0.98), 0, p.goal_xy[1]),
+  };
+  return Object.assign({}, p, { cost, lat, act, c, lo, hi, stats, box, eliteSet: p.elite.map((e) => new Set(e)) });
+});
+
+/* ======================================================================
+   Push-T helpers
+   ====================================================================== */
+/* Simple agent-motion model, fitted on this episode (R² = 0.99):
+   v_t = 0.297 · (100 · a_t) + 0.305 · v_(t-1);  p_t = p_(t-1) + v_t.
+   It has no block contact, so it is only a sketch of where each candidate sends the agent. */
+const ALPHA = 0.297, BETA = 0.305;
+function sketchPath(start, actAt) {
+  let px = start[0], py = start[1], vx = 0, vy = 0;
+  const pts = [[px, py]];
+  for (let j = 0; j < N_ACT; j++) {
+    const [ax, ay] = actAt(j);
+    vx = ALPHA * ax * M.action_scale + BETA * vx;
+    vy = ALPHA * ay * M.action_scale + BETA * vy;
+    px += vx; py += vy;
+    pts.push([px, py]);
+  }
+  return pts;
+}
+function angDiff(a, b) { const d = Math.abs(a - b) % (2 * Math.PI); return Math.min(d, 2 * Math.PI - d); }
+const ERR = STEPS.map((s) => ({
+  pos: Math.hypot(GOAL[0] - s.state[0], GOAL[1] - s.state[1], GOAL[2] - s.state[2], GOAL[3] - s.state[3]),
+  ang: angDiff(GOAL[4], s.state[4]) * 180 / Math.PI,
+}));
+const LAST = STEPS.length - 1;                  // final env step (after the last action)
+const PLAN_AT = PLANS.map((p) => p.env_step);
+
+/* ======================================================================
+   Small drawing helpers (SVG strings)
+   ====================================================================== */
+const f1 = (v) => (+v).toFixed(1);
+function fmt(v) {
+  const a = Math.abs(v);
+  if (Number.isInteger(v)) return String(v);
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  if (a >= 1) return v.toFixed(2);
+  return v.toFixed(3);
+}
+function poly(pts, attrs) { return `<polyline points="${pts.map((p) => f1(p[0]) + "," + f1(p[1])).join(" ")}" fill="none" ${attrs}/>`; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function hex(c) { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; }
+const C_LO = hex("#0f766e"), C_HI = hex("#cbd2dc");
+function costColor(p, v) {
+  const t = Math.min(1, Math.max(0, (Math.log10(Math.max(v, 1e-3)) - p.lo) / (p.hi - p.lo)));
+  const u = Math.pow(t, 0.8);
+  return `rgb(${C_LO.map((x, k) => Math.round(lerp(x, C_HI[k], u))).join(",")})`;
+}
+const ELITE = "#db2777", MEANC = "#2563eb";
+
+function frame(x, y, size, href, label, extra = "") {
+  return `<text class="cap" x="${x}" y="${y - 8}">${label}</text>` +
+    `<image href="${href}" x="${x}" y="${y}" width="${size}" height="${size}" style="image-rendering:auto"/>` +
+    `<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="none" stroke="#98a2b3"/>` + extra;
+}
+/* world (512 px, y down) -> frame px */
+const toFrame = (x, y, size) => (p) => [x + p[0] * size / M.window, y + p[1] * size / M.window];
+
+function chartFrame(x, y, w, h, o) {
+  // o: {x0,x1,y0,y1, log, xt[], yt[], cap, xl, yl}
+  const pl = 46, pr = 12, pt = 26, pb = 30;
+  const X = (v) => x + pl + (v - o.x0) / (o.x1 - o.x0) * (w - pl - pr);
+  const Yr = (v) => y + pt + (o.y1 - v) / (o.y1 - o.y0) * (h - pt - pb);
+  const Y = o.log ? (v) => Yr(Math.log10(Math.max(v, 1e-6))) : Yr;
+  let s = `<rect class="box" x="${x}" y="${y}" width="${w}" height="${h}" rx="10"/>`;
+  s += `<text class="cap" x="${x + 12}" y="${y + 18}">${o.cap}</text>`;
+  for (const v of o.yt) {
+    const yy = o.log ? Yr(Math.log10(v)) : Yr(v);
+    s += `<line class="grid" x1="${x + pl}" x2="${x + w - pr}" y1="${yy}" y2="${yy}"/>`;
+    s += `<text class="tick" x="${x + pl - 5}" y="${yy + 3.5}" text-anchor="end">${o.ytf ? o.ytf(v) : fmt(v)}</text>`;
+  }
+  for (const v of o.xt) {
+    s += `<line class="grid" x1="${X(v)}" x2="${X(v)}" y1="${y + pt}" y2="${y + h - pb}"/>`;
+    s += `<text class="tick" x="${X(v)}" y="${y + h - pb + 13}" text-anchor="middle">${o.xtf ? o.xtf(v) : fmt(v)}</text>`;
+  }
+  if (o.xl) s += `<text x="${x + w - pr}" y="${y + h - 4}" text-anchor="end">${o.xl}</text>`;
+  if (o.yl) s += `<text x="${x + pl}" y="${y + pt - 6}" >${o.yl}</text>`;
+  return { s, X, Y, Yr, x0: x + pl, x1: x + w - pr, y0: y + pt, y1: y + h - pb };
+}
+
+/* ======================================================================
+   Scenes
+   ====================================================================== */
+const SCENES = {};
+
+/* ---------- top scene: one eval episode ---------- */
+SCENES.episode = {
+  title: "Eval episode",
+  steps: [
+    {
+      title: "The eval task",
+      show: { t: 0 },
+      text: () => `Eval takes a <b>start frame</b> and a <b>goal frame</b> from the dataset. ` +
+        `This run uses dataset episode ${M.episode}. It starts at step ${M.start_step}. The goal is the frame ${M.goal_offset_steps} steps later in the same expert episode. ` +
+        `The env is set to the start state. The planner then has a budget of <b>${M.eval_budget} env steps</b> to reach the goal. ` +
+        `It sees only pixels: the current frame and the goal frame.`,
+      op: () => `success = |goal[:4] − state[:4]| < 20 px      (agent xy + block xy)
+          and |goal_angle − angle| < 20°   (π/9)`,
+    },
+    {
+      title: "Plan 1 at step 0",
+      show: { t: 0, plan: 0 },
+      zoom: "plan0",
+      text: () => `At step 0 the action buffer is empty, so the policy calls the <b>CEM solver</b>. ` +
+        `The solver searches for ${HB} action blocks (${N_ACT} env steps). It uses the world model to imagine the result of each candidate. It never touches the env. ` +
+        `The blue dashed line is a sketch of the final plan for the agent.`,
+      op: () => `WorldModelPolicy.get_action(info)
+  └─ buffer empty → CEMSolver.solve(info)  → actions (1, ${HB}, ${BLK * 2})
+  └─ keep receding_horizon = ${M.receding_horizon} blocks → ${M.receding_horizon * BLK} env actions`,
+    },
+    {
+      title: `Do the first ${PLAN_AT[1] ?? N_ACT} steps`,
+      show: { t: [0, PLAN_AT[1] ?? LAST], plan: 0, animate: true },
+      dur: 3400,
+      text: () => `The policy pops one action from the buffer at each env step. It does not plan again until the buffer is empty. ` +
+        `Each action of a block is used for one env step (action_block = ${BLK}). ` +
+        `Gray line: the real agent path. Blue dashed: the sketch of the plan. The block moves only when the agent pushes it.`,
+    },
+    ...PLANS.slice(1).map((p, k) => ({
+      title: `Plan ${k + 2} at step ${p.env_step}`,
+      show: { t: p.env_step, plan: k + 1 },
+      zoom: "plan" + (k + 1),
+      text: () => `The buffer is empty again, so the policy plans again from the new frame. This is <b>receding-horizon</b> control (MPC): plan far, do a part, plan again. ` +
+        `Here horizon = receding_horizon = ${HB} blocks. So the full plan is used and nothing is left for a warm start. ` +
+        `This plan starts again from N(0, 1).`,
+    })),
+    {
+      title: DATA.meta.success ? `Success at step ${LAST}` : `End at step ${LAST}`,
+      show: { t: [PLAN_AT[PLAN_AT.length - 1], LAST], plan: PLANS.length - 1, animate: true },
+      dur: 3400,
+      text: () => DATA.meta.success
+        ? `After ${LAST} env steps the agent and the block are near the goal pose: position error ${fmt(ERR[LAST].pos)} px (&lt; 20) and angle error ${fmt(ERR[LAST].ang)}° (&lt; 20°). ` +
+          `The env reports <b>terminated</b>, and the eval marks this episode as a success. ` +
+          `Note that the position error goes up for a while after step ${PLAN_AT[PLAN_AT.length - 1]}. This error includes the agent position, so it goes up when the agent moves around the block to push it from a different side.`
+        : `The budget is used, and the goal is not reached. The eval marks this episode as a failure.`,
+    },
+    {
+      title: "From one episode to an eval score",
+      show: { t: LAST, plan: -1, summary: true },
+      text: () => `<code>eval.py</code> does this for <b>50 episodes at the same time</b> (50 envs, one solver call per env). It samples the start points with seed ${42}. ` +
+        `The score is the <b>success rate</b>: the percent of episodes that reach the goal in ${M.eval_budget} steps. ` +
+        `For this checkpoint your eval runs gave 82%, 82% and 84%.`,
+      op: () => `python eval.py policy=${M.policy} eval.img_size=${M.img_size}
+→ metrics: {'success_rate': 82.0, 'episode_successes': [...]}`,
+    },
+  ],
+};
+
+/* ---------- inner scenes: one CEM solve per plan ---------- */
+function planScene(pi) {
+  const P = PLANS[pi];
+  const st = P.stats;
+  const steps = [
+    {
+      title: "Encode the current frame and the goal",
+      show: { it: -1, phase: "enc" },
+      text: () => `The encoder (the same ViT as in training) turns each ${M.img_size}×${M.img_size} frame into one latent vector of size ${M.embed_dim}. ` +
+        `<b>z₀</b> is the current frame. <b>z_goal</b> is the goal frame. The distance between them in latent space is ${fmt(P.goal_dist)}. ` +
+        `The plot on the right is a 2D view of latent space: z₀ is at the origin and z_goal is on the x axis.`,
+      op: () => `z0     = encoder(frame_${P.env_step})   (1, ${M.embed_dim})
+z_goal = encoder(goal)       (1, ${M.embed_dim})
+‖z_goal − z0‖ = ${fmt(P.goal_dist)}`,
+    },
+    {
+      title: "Start with a wide Gaussian",
+      show: { it: -1, phase: "dist0" },
+      text: () => `CEM keeps a Gaussian over action sequences: one mean and one std for each of the ${HB}×${BLK * 2} numbers. ` +
+        `Actions are in <b>normalized units</b> (a StandardScaler fit on the dataset actions), so N(0, 1) covers all typical expert actions. ` +
+        `The chart at the bottom right shows the mean ± std for each env step.`,
+      op: () => `mean = zeros(${HB}, ${BLK * 2})
+std  = ${M.var_scale} · ones(${HB}, ${BLK * 2})     # the code calls it "var", but it is a std`,
+    },
+    {
+      title: `Iteration 1: sample ${S} candidates`,
+      show: { it: 0, phase: "sample" },
+      text: () => `Draw ${S} action sequences from the Gaussian. Candidate 0 is set to the mean. ` +
+        `On the frame, each line is a <b>sketch</b> of where the candidate would move the agent (simple motion model, no block contact). ` +
+        `Most of the first candidates are random walks.`,
+      op: () => `cand = randn(${S}, ${HB}, ${BLK * 2}) · std + mean
+cand[0] = mean`,
+    },
+    {
+      title: "Imagine each candidate with the predictor",
+      show: { it: 0, phase: "rollout" },
+      text: () => `For each candidate, the predictor rolls the latent forward one action block at a time. It starts at z₀. ` +
+        `Each call sees the last ≤ 3 latents and their action embeddings (history_size = 3) and outputs the next latent. ` +
+        `So each candidate gives a path z₀ → z₁ → … → z₅. That is ${S}×${HB} = ${S * HB} predictor steps, done as one batch. There are no env steps and no pixels.`,
+      op: () => `emb = z0.expand(${S}, 1, ${M.embed_dim})
+for t in 1..${HB}:
+    a = action_encoder(cand[:, :t])
+    z_t = predictor(emb[:, -3:], a[:, -3:])[:, -1]
+    emb = cat(emb, z_t)            → (${S}, ${T_LAT}, ${M.embed_dim})`,
+    },
+    {
+      title: "Score each candidate",
+      show: { it: 0, phase: "cost" },
+      text: () => `The cost is the squared distance between the <b>last</b> imagined latent z₅ and z_goal, summed over all ${M.embed_dim} dims. ` +
+        `The steps between do not count. Color shows the cost: dark teal is low, light gray is high. ` +
+        `This 2D view keeps only about ${Math.round(100 * P.view_kept[0])}% of each end point's distance to the goal. So the colors do not always match the 2D distance.`,
+      op: () => `cost = ((z5 − z_goal)²).sum(-1)      → (${S},)
+min ${fmt(st[0].min)} · mean ${fmt(st[0].mean)}`,
+    },
+    {
+      title: `Keep the best ${K}`,
+      show: { it: 0, phase: "elite" },
+      text: () => `Take the ${K} candidates with the lowest cost (the <b>elites</b>, pink). All costs to the left of the pink line in the histogram are elites. ` +
+        `The other ${S - K} candidates are not used again.`,
+      op: () => `elite = topk(cost, k=${K}, largest=False)
+elite cost: ${fmt(st[0].min)} … ${fmt(st[0].thr)}`,
+    },
+    {
+      title: "Fit a new Gaussian to the elites",
+      show: { it: 0, phase: "refit" },
+      text: () => `The new mean and std are the mean and std of the ${K} elites. ` +
+        `The band in the bottom-right chart gets narrower: the mean std is now ${fmt(st[0].std)} (it was ${fmt(M.var_scale)}). ` +
+        `The next iteration samples from this new Gaussian.`,
+      op: () => `mean = cand[elite].mean(0)
+std  = cand[elite].std(0)`,
+    },
+  ];
+  for (let it = 1; it < I; it++) {
+    const s = st[it], prev = st[it - 1];
+    let note = "";
+    if (it === 1) note = `Candidate 0 is the old mean. Its cost is ${fmt(s.cand0)}. `;
+    else if (it === 2) note = `The cloud of end points moves toward z_goal. `;
+    else if (it === 5) note = `The best costs drop fast in the first iterations. After that, the gains are small. `;
+    else if (it === 15) note = `Now the std is small, so the candidates are near each other. CEM now fine-tunes the plan. `;
+    else if (it === I - 1) note = `This is the last iteration (n_steps = ${I}). `;
+    steps.push({
+      title: `Iteration ${it + 1} of ${I}`,
+      show: { it, phase: "iter" },
+      dur: it < 6 ? 1500 : 800,
+      text: () => note + `Sample ${S} → imagine → score → keep ${K} → refit. ` +
+        `The best cost goes from ${fmt(prev.min)} to ${fmt(s.min)}. The mean std goes from ${fmt(prev.std)} to ${fmt(s.std)}.`,
+      nums: () => [
+        ["best cost", fmt(s.min)],
+        ["elite mean cost", fmt(s.elite)],
+        ["all-sample mean cost", fmt(s.mean)],
+        ["mean std (after refit)", fmt(s.std)],
+      ],
+    });
+  }
+  steps.push({
+    title: "The plan",
+    show: { it: I - 1, phase: "final" },
+    text: () => `The solver returns the final <b>mean</b> (blue), not the best sample. ` +
+      `The actions are changed back from normalized units to env units. The policy puts the first ${M.receding_horizon} blocks (${M.receding_horizon * BLK} env actions) in its buffer. ` +
+      `In total this plan used ${I}×${S} = ${(I * S).toLocaleString("en")} imagined rollouts.`,
+    op: () => `actions = mean                     (1, ${HB}, ${BLK * 2})
+env_actions = scaler.inverse_transform(actions.reshape(-1, 2))
+# env: target = agent_pos + ${M.action_scale} · action  (PD controller)`,
+  });
+  return { title: `Plan ${pi + 1} · CEM`, plan: pi, steps };
+}
+PLANS.forEach((_, k) => { SCENES["plan" + k] = planScene(k); });
+
+/* ======================================================================
+   Rendering: episode scene
+   ====================================================================== */
+let frameTimer = null;
+function stopFrames() { clearInterval(frameTimer); frameTimer = null; }
+
+function drawEpisode(show, tNow) {
+  const v = [];
+  const t = tNow;
+  // current frame + overlays
+  const fx = 24, fy = 52, fs = 420;
+  const map = toFrame(fx, fy, fs);
+  let over = `<clipPath id="clipF"><rect x="${fx}" y="${fy}" width="${fs}" height="${fs}"/></clipPath><g clip-path="url(#clipF)">`;
+  if (show.plan >= 0) {
+    const P = PLANS[show.plan];
+    const start = STEPS[P.env_step].state;
+    const mean = P.mean_act[I - 1];
+    over += poly(sketchPath(start, (j) => mean[j]).map(map), `stroke="${MEANC}" stroke-width="2.2" stroke-dasharray="6 4" opacity="0.9"`);
+  }
+  if (t > 0) over += poly(STEPS.slice(0, t + 1).map((s) => map(s.state)), `stroke="#475467" stroke-width="2.4" opacity="0.85"`);
+  over += `</g>`;
+  v.push(frame(fx, fy, fs, IMG[t], `Env frame · step ${t}`, over));
+  // goal
+  v.push(frame(464, 52, 200, GOAL_IMG, "Goal frame"));
+  v.push(`<text x="464" y="268">dataset ep ${M.episode}, step ${M.start_step + M.goal_offset_steps}</text>`);
+  // plan cards
+  PLANS.forEach((P, k) => {
+    const y = 292 + k * 92;
+    const cls = show.plan === k ? "active" : (show.plan > k || show.summary ? "done" : "");
+    const reached = t >= P.env_step;
+    v.push(`<g class="card ${cls}" data-zoom="plan${k}" opacity="${reached ? 1 : 0.45}">` +
+      `<rect x="464" y="${y}" width="200" height="80" rx="10"/>` +
+      `<text class="big" x="478" y="${y + 24}">Plan ${k + 1} · step ${P.env_step}</text>` +
+      `<text x="478" y="${y + 44}">${I} CEM iters × ${S} samples</text>` +
+      `<text x="478" y="${y + 62}">best cost ${fmt(P.stats[0].min)} → ${fmt(P.stats[I - 1].min)}</text>` +
+      `<g transform="translate(652 ${y - 8})"><circle r="10" fill="var(--accent)"/><text x="0" y="5" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:15px">+</text></g>` +
+      `</g>`);
+  });
+  // error chart
+  const ch = chartFrame(690, 52, 586, 420, {
+    x0: 0, x1: M.eval_budget, y0: 0, y1: Math.max(...ERR.map((e) => Math.max(e.pos, e.ang))) * 1.08,
+    xt: [0, 10, 20, 25, 30, 40, 50].filter((x) => x <= M.eval_budget), yt: [0, 20, 40, 60, 80, 100].filter((y) => y < 200),
+    cap: "Distance to the goal pose", xl: "env step", yl: "px  /  degrees",
+  });
+  v.push(ch.s);
+  v.push(`<rect x="${ch.x0}" y="${ch.Y(20)}" width="${ch.x1 - ch.x0}" height="${ch.Y(0) - ch.Y(20)}" fill="rgba(22,163,74,0.08)"/>`);
+  v.push(`<line x1="${ch.x0}" x2="${ch.x1}" y1="${ch.Y(20)}" y2="${ch.Y(20)}" stroke="var(--k-ok)" stroke-dasharray="5 4"/>`);
+  v.push(`<text x="${ch.x1 - 4}" y="${ch.Y(20) - 5}" text-anchor="end" style="fill:var(--k-ok)">success zone: both &lt; 20</text>`);
+  PLAN_AT.forEach((s, k) => v.push(`<line x1="${ch.X(s)}" x2="${ch.X(s)}" y1="${ch.y0}" y2="${ch.y1}" stroke="var(--accent)" stroke-dasharray="2 3"/>` +
+    `<text x="${ch.X(s) + 4}" y="${ch.y0 + 12}" style="fill:var(--accent)">plan ${k + 1}</text>`));
+  const sl = ERR.slice(0, t + 1);
+  v.push(poly(sl.map((e, k) => [ch.X(k), ch.Y(e.pos)]), `stroke="var(--k-act)" stroke-width="2.2"`));
+  v.push(poly(sl.map((e, k) => [ch.X(k), ch.Y(e.ang)]), `stroke="var(--k-pred)" stroke-width="2.2"`));
+  v.push(`<circle cx="${ch.X(t)}" cy="${ch.Y(ERR[t].pos)}" r="3.5" fill="var(--k-act)"/><circle cx="${ch.X(t)}" cy="${ch.Y(ERR[t].ang)}" r="3.5" fill="var(--k-pred)"/>`);
+  v.push(`<g transform="translate(${ch.x1 - 250} ${ch.y0 + 20})"><line x1="0" x2="22" y1="0" y2="0" stroke="var(--k-act)" stroke-width="2.2"/><text x="28" y="4">position error (px): ${fmt(ERR[t].pos)}</text>` +
+    `<line x1="0" x2="22" y1="18" y2="18" stroke="var(--k-pred)" stroke-width="2.2"/><text x="28" y="22">block angle error (°): ${fmt(ERR[t].ang)}</text></g>`);
+  // timeline
+  const tx = 24, ty = 520, tw = 1252, n = M.eval_budget, cw = tw / n;
+  v.push(`<text class="cap" x="${tx}" y="${ty - 34}">Env steps (budget ${n}) · one cell = one env action</text>`);
+  for (let k = 0; k < n; k++) {
+    const pk = PLAN_AT.filter((s) => s <= k).length - 1;
+    const used = k < t;
+    const col = pk === 0 ? "#bfdbfe" : "#c7d2fe";
+    v.push(`<rect x="${tx + k * cw + 1}" y="${ty}" width="${cw - 2}" height="34" rx="3" fill="${used ? (pk === 0 ? "#60a5fa" : "#818cf8") : (k <= LAST - 1 ? col : "#eef0f3")}"/>`);
+    if (k % BLK === 0) v.push(`<text class="tick" x="${tx + k * cw + 2}" y="${ty + 48}">${k}</text>`);
+  }
+  PLAN_AT.forEach((s, k) => v.push(`<path d="M${tx + s * cw + 1},${ty - 2} l6,-8 h${N_ACT * cw - 14} l6,8" fill="none" stroke="${k ? "#6366f1" : "#3b82f6"}" stroke-width="1.5"/>` +
+    `<text x="${tx + s * cw + 10}" y="${ty - 14}" style="fill:${k ? "#6366f1" : "#3b82f6"};font-size:11px">plan ${k + 1}: ${N_ACT} actions</text>`));
+  v.push(`<line x1="${tx + t * cw}" x2="${tx + t * cw}" y1="${ty - 4}" y2="${ty + 38}" stroke="var(--ink)" stroke-width="2"/>`);
+  if (t >= LAST && M.success) v.push(`<text x="${tx + LAST * cw + 4}" y="${ty + 24}" style="fill:var(--k-ok);font-weight:700">✓</text>`);
+  // summary strip
+  if (show.summary) {
+    v.push(`<rect class="box fade" x="24" y="600" width="1252" height="140" rx="10"/>`);
+    v.push(`<text class="cap" x="44" y="628">Eval = many episodes like this one</text>`);
+    const cells = 50, okN = 41;
+    for (let k = 0; k < cells; k++) {
+      const ok = k < okN;
+      v.push(`<rect x="${44 + k * 18}" y="645" width="14" height="14" rx="3" fill="${ok ? "#86efac" : "#fca5a5"}"/>`);
+    }
+    v.push(`<text x="44" y="684">Illustration: 50 episodes, 41 ✓ / 9 ✗ (82%), as in your eval run. The order and which ones fail are not real.</text>`);
+    v.push(`<text class="big" x="1000" y="660" style="font-size:30px;fill:var(--k-ok)">82%</text><text x="1000" y="684">success rate (epoch 3)</text>`);
+    v.push(`<text x="44" y="716">This episode: ${M.success ? "success" : "failure"} after ${LAST} steps, ${PLANS.length} plans, ${PLANS.length * I * S} imagined rollouts in total.</text>`);
+  }
+  return v.join("");
+}
+
+/* ======================================================================
+   Rendering: CEM scene
+   ====================================================================== */
+const PH = { enc: 0, dist0: 1, sample: 2, rollout: 3, cost: 4, elite: 5, refit: 6, iter: 7, final: 8 };
+
+function drawPlan(pi, show) {
+  const P = PLANS[pi];
+  const ph = PH[show.phase], it = show.it;
+  const v = [];
+  const hasSamples = ph >= PH.sample, hasLat = ph >= PH.rollout, hasCost = ph >= PH.cost, hasElite = ph >= PH.elite;
+  const elites = it >= 0 ? P.eliteSet[it] : new Set();
+  const order = [];                    // draw high cost first, elites last
+  if (hasSamples) {
+    for (let s = 0; s < S; s++) order.push(s);
+    if (hasCost) order.sort((a, b) => P.c(it, b) - P.c(it, a));
+    if (hasElite) { const e = order.filter((s) => elites.has(s)); const o = order.filter((s) => !elites.has(s)); order.length = 0; order.push(...o, ...e); }
+  }
+  const strokeOf = (s) => {
+    if (hasElite && elites.has(s)) return { c: ELITE, w: 1.4, o: 0.75 };
+    if (hasCost) return { c: costColor(P, P.c(it, s)), w: 1, o: hasElite ? 0.35 : 0.55 };
+    return { c: "#98a2b3", w: 0.9, o: 0.35 };
+  };
+
+  // --- env frame with action sketches
+  const fx = 24, fy = 52, fs = 300;
+  const map = toFrame(fx, fy, fs);
+  const start = STEPS[P.env_step].state;
+  let over = `<clipPath id="clipP"><rect x="${fx}" y="${fy}" width="${fs}" height="${fs}"/></clipPath><g clip-path="url(#clipP)">`;
+  if (hasSamples) {
+    const base = it * S * N_ACT * 2;
+    for (const s of order) {
+      const k0 = base + s * N_ACT * 2;
+      const st = strokeOf(s);
+      over += poly(sketchPath(start, (j) => [P.act[k0 + 2 * j], P.act[k0 + 2 * j + 1]]).map(map),
+        `stroke="${st.c}" stroke-width="${st.w}" opacity="${st.o}"`);
+    }
+  }
+  if (ph >= PH.refit) {
+    const mean = P.mean_act[it];
+    over += poly(sketchPath(start, (j) => mean[j]).map(map), `stroke="${MEANC}" stroke-width="2.6" stroke-dasharray="${ph === PH.final ? "0" : "6 3"}"`);
+  }
+  over += `<circle cx="${map(start)[0]}" cy="${map(start)[1]}" r="4" fill="none" stroke="#fff" stroke-width="2"/></g>`;
+  v.push(frame(fx, fy, fs, IMG[P.env_step], `Frame at env step ${P.env_step} · agent-path sketches`, over));
+  v.push(frame(24, 388, 124, GOAL_IMG, "Goal frame"));
+  v.push(`<g transform="translate(164 388)"><text class="cap" x="0" y="14">Latents</text>` +
+    `<text x="0" y="36">z₀ = enc(frame)   (${M.embed_dim})</text><text x="0" y="56">z_goal = enc(goal) (${M.embed_dim})</text>` +
+    `<text x="0" y="80">‖z_goal − z₀‖ = ${fmt(P.goal_dist)}</text>` +
+    (hasSamples ? `<text x="0" y="104">${S} candidates</text><text x="0" y="122">(${HB} blocks × ${BLK} steps × 2)</text>` : "") + `</g>`);
+
+  // --- latent view
+  const lx = 350, ly = 52, lw = 926, lh = 456;
+  const b = P.box, pad = 0.06;
+  const bx0 = b.x0 - (b.x1 - b.x0) * pad, bx1 = b.x1 + (b.x1 - b.x0) * pad;
+  const by0 = b.y0 - (b.y1 - b.y0) * pad, by1 = b.y1 + (b.y1 - b.y0) * pad;
+  const LX = (x) => lx + 40 + (x - bx0) / (bx1 - bx0) * (lw - 60);
+  const LY = (y) => ly + 30 + (by1 - y) / (by1 - by0) * (lh - 60);
+  v.push(`<rect class="box" x="${lx}" y="${ly}" width="${lw}" height="${lh}" rx="10"/>`);
+  v.push(`<text class="cap" x="${lx + 12}" y="${ly + 18}">Latent space (2D view of ${M.embed_dim}-D) · imagined paths z₀ → z₅</text>`);
+  v.push(`<clipPath id="clipL"><rect x="${lx + 1}" y="${ly + 24}" width="${lw - 2}" height="${lh - 26}"/></clipPath><g clip-path="url(#clipL)">`);
+  v.push(`<line class="axis" x1="${LX(bx0)}" x2="${LX(bx1)}" y1="${LY(0)}" y2="${LY(0)}" stroke-dasharray="3 4"/>`);
+  if (hasLat) {
+    const base = it * S * T_LAT * 2;
+    const animate = ph === PH.rollout;
+    for (const s of order) {
+      const k0 = base + s * T_LAT * 2;
+      const pts = [];
+      for (let t = 0; t < T_LAT; t++) pts.push([LX(P.lat[k0 + 2 * t]), LY(P.lat[k0 + 2 * t + 1])]);
+      const st = strokeOf(s);
+      v.push(poly(pts, `stroke="${st.c}" stroke-width="${st.w}" opacity="${st.o * 0.8}"${animate ? ' class="draw"' : ""}`));
+      v.push(`<circle cx="${f1(pts[T_LAT - 1][0])}" cy="${f1(pts[T_LAT - 1][1])}" r="${hasElite && elites.has(s) ? 2.6 : 1.8}" fill="${st.c}" opacity="${Math.min(1, st.o + 0.25)}"${animate ? ' class="fade"' : ""}/>`);
+    }
+    if (ph >= PH.refit) {
+      // candidate 0 of the NEXT iteration is the refit mean; show this iteration's candidate 0 (the previous mean)
+      const k0 = base;
+      const pts = [];
+      for (let t = 0; t < T_LAT; t++) pts.push([LX(P.lat[k0 + 2 * t]), LY(P.lat[k0 + 2 * t + 1])]);
+      v.push(poly(pts, `stroke="${MEANC}" stroke-width="2.4" stroke-dasharray="6 3"`));
+      pts.forEach((p, t) => v.push(`<circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="3" fill="${MEANC}"/>`));
+      v.push(`<text x="${f1(pts[T_LAT - 1][0]) - 8}" y="${f1(pts[T_LAT - 1][1]) - 10}" text-anchor="end" style="fill:${MEANC};paint-order:stroke;stroke:#fff;stroke-width:3px">cand 0 (= mean before refit)</text>`);
+    }
+  }
+  v.push(`</g>`);
+  // z0 and goal markers
+  v.push(`<circle cx="${LX(0)}" cy="${LY(0)}" r="6" fill="var(--k-emb)" stroke="#fff" stroke-width="2"/>`);
+  v.push(`<text x="${LX(0) - 8}" y="${LY(0) + 20}" text-anchor="middle" style="fill:var(--k-emb);font-weight:600">z₀ (now)</text>`);
+  const gx = LX(P.goal_xy[0]), gy = LY(P.goal_xy[1]);
+  v.push(`<path d="M${gx},${gy - 10} L${gx + 3},${gy - 3} L${gx + 10},${gy - 3} L${gx + 4.5},${gy + 2} L${gx + 6.5},${gy + 9} L${gx},${gy + 5} L${gx - 6.5},${gy + 9} L${gx - 4.5},${gy + 2} L${gx - 10},${gy - 3} L${gx - 3},${gy - 3} Z" fill="var(--k-loss)" stroke="#fff" stroke-width="1.5"/>`);
+  v.push(`<text x="${gx}" y="${gy + 26}" text-anchor="middle" style="fill:var(--k-loss);font-weight:600">z_goal</text>`);
+  v.push(`<text x="${lx + lw - 14}" y="${ly + lh - 10}" text-anchor="end">x: direction z₀ → z_goal · y: main spread of the paths, at right angles to x</text>`);
+  if (hasCost) v.push(`<text x="${lx + 14}" y="${ly + lh - 10}">2D view keeps ~${Math.round(100 * P.view_kept[it])}% of the end-point error</text>`);
+  // legend
+  if (hasSamples) {
+    let lg = `<g transform="translate(${lx + 24} ${ly + 44})"><rect x="-10" y="-14" width="226" height="${hasElite ? 76 : 40}" rx="6" fill="rgba(255,255,255,.88)"/>`;
+    if (hasCost) {
+      for (let k = 0; k < 40; k++) lg += `<rect x="${k * 3}" y="-6" width="3" height="8" fill="${costColor(P, Math.pow(10, lerp(P.lo, P.hi, k / 39)))}"/>`;
+      lg += `<text x="126" y="2">cost: low → high</text>`;
+    } else lg += `<line x1="0" x2="22" y1="-2" y2="-2" stroke="#98a2b3" stroke-width="2"/><text x="28" y="2">candidate (not scored yet)</text>`;
+    if (hasElite) lg += `<line x1="0" x2="22" y1="18" y2="18" stroke="${ELITE}" stroke-width="2"/><text x="28" y="22">elite (top ${K})</text>`;
+    if (ph >= PH.refit) lg += `<line x1="0" x2="22" y1="38" y2="38" stroke="${MEANC}" stroke-width="2.4" stroke-dasharray="6 3"/><text x="28" y="42">mean plan</text>`;
+    v.push(lg + `</g>`);
+  }
+
+  // --- bottom row: histogram, convergence, mean plan
+  const by = 530, bh = 212;
+  // histogram of log cost
+  const nb = 36;
+  const hc = chartFrame(24, by, 404, bh, {
+    x0: P.lo, x1: P.hi, y0: 0, y1: 1, xt: [], yt: [], cap: `Cost of the ${S} candidates${it >= 0 ? ` · iter ${it + 1}` : ""}`,
+    xl: "cost (log scale)",
+  });
+  v.push(hc.s);
+  for (let e = Math.ceil(P.lo); e <= Math.floor(P.hi); e++) {
+    v.push(`<line class="grid" x1="${hc.X(e)}" x2="${hc.X(e)}" y1="${hc.y0}" y2="${hc.y1}"/><text class="tick" x="${hc.X(e)}" y="${hc.y1 + 13}" text-anchor="middle">${fmt(Math.pow(10, e))}</text>`);
+  }
+  if (hasCost) {
+    const cnt = new Array(nb).fill(0), ecnt = new Array(nb).fill(0);
+    for (let s = 0; s < S; s++) {
+      const l = Math.log10(Math.max(P.c(it, s), 1e-3));
+      const k = Math.min(nb - 1, Math.floor((l - P.lo) / (P.hi - P.lo) * nb));
+      cnt[k]++; if (hasElite && elites.has(s)) ecnt[k]++;
+    }
+    const mx = Math.max(...cnt, 1);
+    const bw = (hc.x1 - hc.x0) / nb;
+    for (let k = 0; k < nb; k++) {
+      if (!cnt[k]) continue;
+      const hh = (hc.y1 - hc.y0) * cnt[k] / mx, he = (hc.y1 - hc.y0) * ecnt[k] / mx;
+      const mid = Math.pow(10, P.lo + (k + 0.5) / nb * (P.hi - P.lo));
+      v.push(`<rect x="${hc.x0 + k * bw + 0.5}" y="${hc.y1 - hh}" width="${bw - 1}" height="${hh}" fill="${costColor(P, mid)}"/>`);
+      if (he) v.push(`<rect x="${hc.x0 + k * bw + 0.5}" y="${hc.y1 - he}" width="${bw - 1}" height="${he}" fill="${ELITE}" opacity="0.85"/>`);
+    }
+    if (hasElite) {
+      const xt = hc.X(Math.log10(P.stats[it].thr));
+      v.push(`<line x1="${xt}" x2="${xt}" y1="${hc.y0 - 4}" y2="${hc.y1}" stroke="${ELITE}" stroke-width="1.5" stroke-dasharray="4 3"/>`);
+      v.push(`<text x="${xt + 4}" y="${hc.y0 + 8}" style="fill:${ELITE}">top ${K}</text>`);
+    }
+  } else v.push(`<text x="${24 + 202}" y="${by + bh / 2}" text-anchor="middle">no costs yet</text>`);
+
+  // convergence (log y)
+  const allMin = Math.min(...P.stats.map((s) => s.min)), allMax = Math.max(...P.stats.map((s) => s.mean));
+  const lo = Math.floor(Math.log10(allMin)), hi = Math.ceil(Math.log10(allMax));
+  const yt = []; for (let e = lo; e <= hi; e++) yt.push(Math.pow(10, e));
+  const cc = chartFrame(448, by, 404, bh, {
+    x0: 1, x1: I, y0: lo, y1: hi, log: true, xt: [1, 5, 10, 15, 20, 25, 30].filter((x) => x <= I), yt,
+    cap: "Cost per CEM iteration", xl: "iteration",
+  });
+  v.push(cc.s);
+  const upto = ph >= PH.refit || ph === PH.iter || ph === PH.final ? it : (hasCost ? 0 : -1);
+  if (upto >= 0) {
+    const series = [["mean", "#98a2b3", "all samples (mean)"], ["elite", ELITE, "elites (mean)"], ["min", "var(--k-emb)", "best"]];
+    series.forEach(([key, col]) => {
+      const pts = P.stats.slice(0, upto + 1).map((s, k) => [cc.X(k + 1), cc.Y(s[key])]);
+      v.push(poly(pts, `stroke="${col}" stroke-width="2"`));
+      v.push(`<circle cx="${f1(pts[pts.length - 1][0])}" cy="${f1(pts[pts.length - 1][1])}" r="3" fill="${col}"/>`);
+    });
+    v.push(`<g transform="translate(${cc.x1 - 128} ${cc.y0 + 6})">` + series.map(([, col, lab], k) =>
+      `<line x1="0" x2="16" y1="${k * 15}" y2="${k * 15}" stroke="${col}" stroke-width="2"/><text x="21" y="${k * 15 + 4}">${lab}</text>`).join("") + `</g>`);
+  }
+
+  // mean plan ± std (normalized units)
+  const mc = chartFrame(872, by, 404, bh, {
+    x0: 0, x1: N_ACT, y0: -2.6, y1: 2.6, xt: [0, 5, 10, 15, 20, 25], yt: [-2, -1, 0, 1, 2],
+    cap: "Gaussian over actions: mean ± std", xl: "env step in plan", yl: "normalized action",
+  });
+  v.push(mc.s);
+  let mean = null, std = null;
+  if (ph === PH.dist0 || (ph >= PH.sample && ph < PH.refit)) {
+    mean = Array.from({ length: HB }, () => new Array(BLK * 2).fill(0));
+    std = Array.from({ length: HB }, () => new Array(BLK * 2).fill(M.var_scale));
+    if (it > 0) { mean = P.mean_norm[it - 1]; std = P.std_norm[it - 1]; }
+  } else if (ph >= PH.refit) { mean = P.mean_norm[it]; std = P.std_norm[it]; }
+  if (mean) {
+    [[0, "var(--k-act)", "x"], [1, "#7c3aed", "y"]].forEach(([d, col, lab]) => {
+      let band = "", line = [];
+      const up = [], dn = [];
+      for (let j = 0; j < N_ACT; j++) {
+        const bI = Math.floor(j / BLK), w = j % BLK;
+        const m = mean[bI][2 * w + d], s = std[bI][2 * w + d];
+        up.push([mc.X(j), mc.Y(Math.min(m + s, 2.6))], [mc.X(j + 1), mc.Y(Math.min(m + s, 2.6))]);
+        dn.push([mc.X(j), mc.Y(Math.max(m - s, -2.6))], [mc.X(j + 1), mc.Y(Math.max(m - s, -2.6))]);
+        line.push([mc.X(j), mc.Y(m)], [mc.X(j + 1), mc.Y(m)]);
+      }
+      band = `<path d="M${up.map((p) => f1(p[0]) + "," + f1(p[1])).join(" L")} L${dn.reverse().map((p) => f1(p[0]) + "," + f1(p[1])).join(" L")} Z" fill="${col}" opacity="0.13"/>`;
+      v.push(band + poly(line, `stroke="${col}" stroke-width="2"`));
+    });
+    for (let bI = 1; bI < HB; bI++) v.push(`<line x1="${mc.X(bI * BLK)}" x2="${mc.X(bI * BLK)}" y1="${mc.y0}" y2="${mc.y1}" stroke="#d0d5dd" stroke-dasharray="2 3"/>`);
+    v.push(`<g transform="translate(${mc.x1 - 120} ${mc.y0 + 6})"><line x1="0" x2="16" y1="0" y2="0" stroke="var(--k-act)" stroke-width="2"/><text x="21" y="4">action x</text>` +
+      `<line x1="0" x2="16" y1="15" y2="15" stroke="#7c3aed" stroke-width="2"/><text x="21" y="19">action y</text></g>`);
+  }
+  return v.join("");
+}
+
+/* ======================================================================
+   Chrome, panel, navigation
+   ====================================================================== */
+const stack = [{ id: "episode", i: 0 }];
+let playTimer = null;
+function cur() { const f = stack[stack.length - 1]; return { f, scene: SCENES[f.id], i: f.i }; }
+
+function fit() {
+  const wrap = $("stage-wrap");
+  const s = wrap.clientWidth / W;
+  $("stage").style.transform = `scale(${s})`;
+  wrap.style.height = H * s + "px";
+}
+
+function render() {
+  stopFrames();
+  const { f, scene, i } = cur();
+  const step = scene.steps[i];
+  $("scene-title").textContent = scene.title;
+  const view = $("view");
+  if (f.id === "episode") {
+    const t = step.show.t;
+    if (Array.isArray(t)) {
+      let k = t[0];
+      view.innerHTML = drawEpisode(step.show, k);
+      if (step.show.animate) {
+        frameTimer = setInterval(() => {
+          k++;
+          view.innerHTML = drawEpisode(step.show, k);
+          bindCards();
+          if (k >= t[1]) stopFrames();
+        }, Math.max(60, Math.min(120, 3000 / (t[1] - t[0]))));
+      } else view.innerHTML = drawEpisode(step.show, t[1]);
+    } else view.innerHTML = drawEpisode(step.show, t);
+    bindCards();
+  } else {
+    view.innerHTML = drawPlan(scene.plan, step.show);
+  }
+  renderPanel(scene, i, step);
+  renderChrome(scene, i);
+  try { history.replaceState(null, "", `#${f.id}:${i}` + (stack.length > 1 ? `@${stack[0].i}` : "")); } catch (e) { /* file:// may refuse */ }
+}
+
+function bindCards() {
+  $("view").querySelectorAll(".card").forEach((g) => g.addEventListener("click", () => zoomTo(g.dataset.zoom)));
+}
+
+function renderPanel(scene, i, step) {
+  const n = scene.steps.length;
+  let html = `<div class="p-step">Step ${i + 1} of ${n} · ${scene.title}</div><h2>${step.title}</h2>`;
+  if (step.text) html += `<p class="p-text">${step.text()}</p>`;
+  if (step.nums) html += `<div class="p-nums">${step.nums().map(([k, v]) => `<span class="k">${k}</span><span class="v">${v}</span>`).join("")}</div>`;
+  if (step.op) html += `<pre class="p-op">${step.op().replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]))}</pre>`;
+  if (step.zoom) {
+    html += `<div class="callout">This plan has inner steps: the ${I} CEM iterations. You can zoom in, or press <kbd>→</kbd> to go on.<br>` +
+      `<button class="btn" id="p-zoom">Zoom into ${SCENES[step.zoom].title} <kbd>Enter</kbd></button></div>`;
+  }
+  if (i === n - 1 && stack.length > 1) {
+    html += `<div class="callout end">End of ${scene.title}. Press <kbd>→</kbd> to go back to <b>${SCENES[stack[stack.length - 2].id].title}</b>.</div>`;
+  }
+  html += `<div class="legend"><h3>Sizes</h3><table>
+    <tr><td>S</td><td>candidates per iteration: ${S}</td></tr>
+    <tr><td>K</td><td>elites kept: ${K}</td></tr>
+    <tr><td>I</td><td>CEM iterations per plan: ${I}</td></tr>
+    <tr><td>H</td><td>horizon: ${HB} action blocks</td></tr>
+    <tr><td>A</td><td>one block: ${BLK * 2} (${BLK} env steps × 2)</td></tr>
+    <tr><td>D</td><td>latent size: ${M.embed_dim}</td></tr>
+  </table>
+  <p style="margin:8px 0 0">Data: real run of <code>${M.policy}</code> on ${M.env}, recorded with <code>scripts/dump_planning.py</code>. Pipeline diagrams: <a href="lewm_planning_pipeline.html">lewm_planning_pipeline.html</a>.</p>
+  <div class="keys"><kbd>←</kbd> <kbd>→</kbd> step · <kbd>Space</kbd> play · <kbd>Home</kbd> reset · <kbd>Enter</kbd> zoom in · <kbd>Esc</kbd> zoom out</div></div>`;
+  $("panel").innerHTML = html;
+  const zb = $("p-zoom");
+  if (zb) zb.addEventListener("click", () => zoomTo(step.zoom));
+}
+
+function renderChrome(scene, i) {
+  const n = scene.steps.length;
+  const slider = $("slider");
+  slider.max = n - 1; slider.value = i;
+  $("counter").textContent = `${i + 1} / ${n}`;
+  $("b-prev").disabled = i === 0 && stack.length === 1;
+  $("b-next").disabled = i === n - 1 && stack.length === 1;
+  $("b-out").disabled = stack.length === 1;
+  $("b-reset").disabled = stack.length === 1 && i === 0;
+  const crumbs = $("crumbs");
+  crumbs.innerHTML = "";
+  stack.forEach((f, k) => {
+    if (k) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "›"; crumbs.appendChild(s); }
+    const b = document.createElement("button");
+    b.textContent = SCENES[f.id].title;
+    if (k === stack.length - 1) b.className = "here";
+    else b.addEventListener("click", () => popTo(k));
+    crumbs.appendChild(b);
+  });
+}
+
+function animateScene(cls) {
+  const el = $("scene");
+  el.classList.remove("anim-in", "anim-out");
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+
+function next() {
+  const { f, scene, i } = cur();
+  if (i < scene.steps.length - 1) { f.i++; render(); }
+  else if (stack.length > 1) popTo(stack.length - 2);
+  else stopPlay();
+}
+function prev() {
+  const { f, i } = cur();
+  if (i > 0) { f.i--; render(); }
+  else if (stack.length > 1) popTo(stack.length - 2);
+}
+function zoomTo(id) {
+  if (!SCENES[id] || stack.length > 1) return;
+  // move the episode to the step of this plan, so that zooming out returns there
+  const k = SCENES.episode.steps.findIndex((s) => s.zoom === id);
+  if (k >= 0) stack[0].i = k;
+  stack.push({ id, i: 0 });
+  animateScene("anim-in");
+  render();
+}
+function popTo(k) {
+  if (k >= stack.length - 1) return;
+  stack.length = k + 1;
+  animateScene("anim-out");
+  render();
+}
+function reset() {
+  stopPlay();
+  const zoomed = stack.length > 1;
+  stack.length = 1; stack[0].i = 0;
+  if (zoomed) animateScene("anim-out");
+  render();
+}
+
+function togglePlay() { playTimer ? stopPlay() : startPlay(); }
+function schedule() {
+  const { scene, i } = cur();
+  playTimer = setTimeout(() => { next(); if (playTimer) schedule(); }, scene.steps[i].dur || 2800);
+}
+function startPlay() {
+  $("b-play").textContent = "❚❚ Pause";
+  playTimer = -1;
+  next();
+  schedule();
+}
+function stopPlay() {
+  clearTimeout(playTimer); playTimer = null;
+  $("b-play").textContent = "▶ Play";
+}
+
+function loadHash() {
+  const m = /^#(\w+):(\d+)(?:@(\d+))?$/.exec(location.hash);
+  if (!m || !SCENES[m[1]]) return;
+  if (m[1] === "episode") { stack[0].i = Math.min(+m[2], SCENES.episode.steps.length - 1); return; }
+  stack[0].i = Math.min(+(m[3] || 0), SCENES.episode.steps.length - 1);
+  stack.push({ id: m[1], i: Math.min(+m[2], SCENES[m[1]].steps.length - 1) });
+}
+
+$("b-next").addEventListener("click", next);
+$("b-reset").addEventListener("click", reset);
+$("b-prev").addEventListener("click", prev);
+$("b-play").addEventListener("click", togglePlay);
+$("b-out").addEventListener("click", () => popTo(stack.length - 2));
+$("slider").addEventListener("input", (e) => { cur().f.i = +e.target.value; render(); });
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.key !== "Escape" && e.key !== " ") return;
+  if (e.key === "ArrowRight") { e.preventDefault(); next(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); prev(); }
+  else if (e.key === "Home") { e.preventDefault(); reset(); }
+  else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "Enter") {
+    const { scene, i } = cur();
+    if (scene.steps[i].zoom) { e.preventDefault(); zoomTo(scene.steps[i].zoom); }
+  } else if (e.key === "Escape") { popTo(stack.length - 2); }
+});
+window.addEventListener("resize", fit);
+
+loadHash();
+fit();
+render();
+</script>
+</body>
+</html>

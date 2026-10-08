@@ -4,8 +4,24 @@
     {
       "name": "slides",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "tutorials/slides", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "tutorials/slides",
+        "dev"
+      ],
       "port": 3030
+    },
+    {
+      "name": "viz",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8765",
+        "--directory",
+        "docs/viz"
+      ],
+      "port": 8765
     }
   ]
 }
