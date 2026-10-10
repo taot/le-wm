@@ -359,8 +359,11 @@ SCENES.top = {
       title: "Pop one action and unscale it",
       text: "At each env step, the policy takes the oldest action from the buffer. " +
         "The solver works in normalized units, so the action goes through the inverse of the StandardScaler. " +
-        "The result is in env units, about −1 … 1.",
-      op: "action = self._action_buffer[0].popleft()                 # (2,)\naction = self.process[\"action\"].inverse_transform(action)  # (1, 2)",
+        "The result is in env units, about −1 … 1.<br><br>" +
+        "This code is in the <b>library</b>, not in the repo: <code>WorldModelPolicy.get_action()</code> in " +
+        "<code>.venv/lib/python3.10/site-packages/stable_worldmodel/policy.py</code>. " +
+        "The repo only fits the scalers (<code>fit_process()</code> in eval.py) and passes them in as <code>process</code>.",
+      op: "# stable_worldmodel/policy.py, WorldModelPolicy.get_action()\naction = self._action_buffer[0].popleft()                 # (2,)\naction = self.process[\"action\"].inverse_transform(action)  # (1, 2)",
       active: ["inv"], edges: ["buf>inv"],
       t: {
         a: { at: "buf", shape: [24, 2], names: ["left", "xy"], label: "buffer (24 left)" },
