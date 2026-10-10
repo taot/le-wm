@@ -20,7 +20,7 @@ log() {
 
 log "Installing apt packages"
 apt update
-apt install gh
+apt install gh less
 
 cd ~
 if [ ! -d le-wm ]; then
