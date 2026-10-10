@@ -252,8 +252,8 @@ SCENES.top = {
     obs:  { x: 80,   y: 110, w: 110, h: 50, label: "Env obs", sub: "current frame", kind: "io" },
     goal: { x: 80,   y: 330, w: 110, h: 50, label: "Goal", sub: "dataset frame", kind: "io" },
     prep: { x: 300,  y: 220, w: 170, h: 64, label: "Preprocess", sub: "Normalize · Resize 112", out: "2 × (1, 1, 3, 112, 112)" },
-    init: { x: 300,  y: 520, w: 170, h: 64, label: "Init Gaussian", sub: "mean 0 · std 1", out: "2 × (1, 5, 10)" },
-    cem:  { x: 580,  y: 370, w: 190, h: 90, label: "CEM solver", sub: "30 iterations × 300 candidates", zoom: "cem", out: "(1, 5, 10)" },
+    init: { x: 300,  y: 520, w: 170, h: 64, label: "Init Gaussian", sub: "mean 0 · std 1", out: "2 × (1, 8, 10)" },
+    cem:  { x: 580,  y: 370, w: 190, h: 90, label: "CEM solver", sub: "30 iterations × 300 candidates", zoom: "cem", out: "(1, 8, 10)" },
     keep: { x: 850,  y: 370, w: 150, h: 64, label: "Keep 5 blocks", sub: "receding_horizon = 5", out: "(1, 5, 10)" },
     resh: { x: 1110, y: 370, w: 150, h: 64, label: "Reshape", sub: "blocks → env steps", out: "(1, 25, 2)" },
     buf:  { x: 1110, y: 610, w: 150, h: 64, label: "Action buffer", sub: "deque, maxlen 25", out: "25 × (2,)" },
@@ -293,19 +293,22 @@ SCENES.top = {
     },
     {
       title: "Start distribution",
-      text: "CEM searches over action sequences. A sequence has <b>H = 5</b> action blocks, and each block has <b>A = 10</b> values " +
+      text: "<b>Note:</b> to show what the next step (Keep 5 blocks) does, this view uses <b>horizon = 8</b>. " +
+        "The real PushT config uses horizon = 5, so there the plan and the kept blocks have the same shape. The inner scenes (CEM, cost) use the real value 5.<br><br>" +
+        "CEM searches over action sequences. A sequence has <b>H = 8</b> action blocks, and each block has <b>A = 10</b> values " +
         "(5 env steps × 2, the same frameskip grouping as in training).<br><br>" +
         "CEM keeps a <b>Gaussian</b> over action sequences. A Gaussian needs two tensors, so the card shows <b>×2</b>:<br>" +
         "• <b>mean</b>: the center, the best plan found so far (where to search).<br>" +
         "• <b>std</b>: the spread, how far samples go from the mean (how widely to search).<br>" +
-        "There is one mean and one std for each of the 5 × 10 numbers. The Gaussian is diagonal: each number is sampled alone, with no covariance matrix. " +
+        "There is one mean and one std for each of the 8 × 10 numbers. The Gaussian is diagonal: each number is sampled alone, with no covariance matrix. " +
         "So both tensors have the same shape as one plan.<br><br>" +
         "It starts with mean 0 and std 1. The actions are in <b>normalized units</b> " +
         "(StandardScaler fit on the dataset actions), so N(0, 1) covers the usual expert actions.<br><br>" +
-        "Here horizon = receding_horizon, so no part of the last plan is left over. Every plan starts again from N(0, 1) (no warm start).",
-      op: "mean = zeros(1, 5, 10)\nvar  = 1.0 * ones(1, 5, 10)    # var_scale; it is used as a std",
+        "With horizon 8 > receding_horizon 5, the last plan leaves 3 unused blocks. They become the first 3 blocks of the start mean (<b>warm start</b>). " +
+        "The other 5 blocks start at 0. The first plan of an episode has no last plan, so it starts from N(0, 1).",
+      op: "mean = zeros(1, 8, 10)\nmean[:, :3] = rest             # warm start from the last plan (not in the first plan)\nvar  = 1.0 * ones(1, 8, 10)    # var_scale; it is used as a std",
       active: ["init"],
-      t: { d: { from: "init", at: "init", shape: [1, 5, 10], names: ["E", "H", "A"], kind: "act", mult: 2, label: "mean, std" } },
+      t: { d: { from: "init", at: "init", shape: [1, 8, 10], names: ["E", "H", "A"], kind: "act", mult: 2, label: "mean, std" } },
     },
     {
       title: "CEM solver",
@@ -315,31 +318,35 @@ SCENES.top = {
         "One iteration: <b>sample</b> 300 plans (randn · std + mean), <b>score</b> them, and <b>refit</b>: the new mean and std are the mean and std of the 30 elites. " +
         "When the elites agree, the std gets smaller and the search narrows around the best plan.<br><br>" +
         "The mean and std are the <b>memory of the search</b>. Each iteration starts from the mean and std of the last iteration and overwrites them with better values. " +
-        "Without this, every iteration would start from random again. They live only inside this one plan step: " +
-        "the next plan step starts again from mean 0 and std 1.<br><br>" +
+        "Without this, every iteration would start from random again. They live only inside this one plan step. " +
+        "The next plan step starts again from std 1, and from a mean that has only the warm-start blocks.<br><br>" +
         "The result is the final mean of the Gaussian. The std is not used after the last iteration. Zoom in to see one iteration.",
-      op: "outputs = self.solver(info, init_action=None)\nactions = outputs[\"actions\"]   # (1, 5, 10)",
+      op: "outputs = self.solver(info, init_action=None)\nactions = outputs[\"actions\"]   # (1, 8, 10)",
       active: ["cem"], edges: ["prep>cem", "init>cem"], zoom: "cem",
       t: {
         x: { gone: "cem" }, g: { gone: "cem" }, d: { gone: "cem" },
-        a: { from: "cem", at: "cem", shape: [1, 5, 10], names: ["E", "H", "A"], kind: "act", label: "actions" },
+        a: { from: "cem", at: "cem", shape: [1, 8, 10], names: ["E", "H", "A"], kind: "act", label: "actions" },
       },
     },
     {
       title: "Keep the first 5 blocks",
       text: "This is <b>receding-horizon</b> control (MPC): plan far, do a part, then plan again with a new frame. " +
-        "The policy keeps the first receding_horizon = 5 blocks. Here that is the full plan, so <code>rest</code> is empty.<br><br>" +
-        "If horizon were larger than receding_horizon, <code>rest</code> would be the start mean of the next plan (warm start).",
-      op: "plan = actions[:, :5]          # (1, 5, 10)\nrest = actions[:, 5:]          # (1, 0, 10): empty, no warm start",
+        "The policy keeps the first receding_horizon = 5 of the 8 blocks: (1, 8, 10) → (1, 5, 10).<br><br>" +
+        "The last 3 blocks are <code>rest</code>. They are not executed now. They are kept as the warm start for the next plan.<br><br>" +
+        "In the real PushT config, horizon = receding_horizon = 5. Then the shape does not change, and <code>rest</code> is empty (1, 0, 10).",
+      op: "plan = actions[:, :5]          # (1, 5, 10)\nrest = actions[:, 5:]          # (1, 3, 10): warm start for the next plan",
       active: ["keep"], edges: ["cem>keep"],
-      t: { a: { via: "keep", at: "keep", label: "plan" } },
+      t: {
+        a: { via: "keep", at: "keep", shape: [1, 5, 10], names: ["E", "H", "A"], label: "plan" },
+        r: { from: "keep", at: [850, 215], shape: [1, 3, 10], names: ["E", "H", "A"], kind: "act", label: "rest" },
+      },
     },
     {
       title: "Blocks to env steps",
       text: "One block holds the actions of 5 env steps. A reshape gives one 2-value action per env step: 5 × 5 = <b>25</b> actions.",
       op: "plan = plan.reshape(1, 25, -1)   # (1, 25, 2)",
       active: ["resh"], edges: ["keep>resh"],
-      t: { a: { via: "resh", at: "resh", shape: [1, 25, 2], names: ["E", "5·5", "xy"], label: "plan" } },
+      t: { a: { via: "resh", at: "resh", shape: [1, 25, 2], names: ["E", "5·5", "xy"], label: "plan" }, r: { gone: "init" } },
     },
     {
       title: "Fill the buffer",
