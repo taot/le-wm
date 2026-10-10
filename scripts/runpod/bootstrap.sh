@@ -22,6 +22,10 @@ log "Installing apt packages"
 apt update
 apt install gh less
 
+log "Configure git"
+git config --global user.email "librakevin@gmail.com"
+git config --global user.name "Terry Tao"
+
 cd ~
 if [ ! -d le-wm ]; then
     log "Cloning le-wm"
