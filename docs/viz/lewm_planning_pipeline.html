@@ -108,7 +108,7 @@ svg#edges { position: absolute; inset: 0; width: 1300px; height: 760px; overflow
 .t-grid i { background: var(--c); }
 .t-grid i.m { background: repeating-linear-gradient(45deg, #e4e7ec 0 3px, #f6f7f9 3px 6px); }
 .t-shape { font-family: var(--mono); font-size: 12.5px; margin-top: 4px; color: var(--ink); }
-.t-mult { font-family: var(--mono); font-size: 11px; color: #fff; background: var(--c); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.t-mult { font-family: var(--mono); font-size: 11px; color: #fff; background: var(--c); border-radius: 4px; padding: 0 4px; margin-left: 4px; pointer-events: auto; cursor: help; }
 .t-dims { font-size: 11px; color: var(--muted); }
 
 /* ---------- panel ---------- */
@@ -139,7 +139,11 @@ svg#edges { position: absolute; inset: 0; width: 1300px; height: 760px; overflow
 .legend h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 6px; color: var(--ink); }
 .legend table { border-collapse: collapse; width: 100%; }
 .legend td { padding: 2px 0; vertical-align: top; }
-.legend td:first-child { font-family: var(--mono); color: var(--ink); width: 54px; }
+.legend td:first-child { font-family: var(--mono); color: var(--ink); width: 44px; white-space: nowrap; }
+.legend td:nth-child(2) { font-family: var(--mono); color: var(--ink); width: 72px; padding-right: 8px; white-space: nowrap; }
+.legend tr.lg-sec td { font-family: inherit; color: var(--ink); font-weight: 600; padding-top: 8px; width: auto; }
+.legend b { color: var(--ink); font-weight: 600; }
+.legend .lg-note { margin: 8px 0 0; }
 .keys { margin-top: 10px; }
 kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; color: var(--ink); }
 </style>
@@ -291,7 +295,12 @@ SCENES.top = {
       title: "Start distribution",
       text: "CEM searches over action sequences. A sequence has <b>H = 5</b> action blocks, and each block has <b>A = 10</b> values " +
         "(5 env steps × 2, the same frameskip grouping as in training).<br><br>" +
-        "It starts with a Gaussian: mean 0 and std 1 for each of the 5 × 10 numbers. The actions are in <b>normalized units</b> " +
+        "CEM keeps a <b>Gaussian</b> over action sequences. A Gaussian needs two tensors, so the card shows <b>×2</b>:<br>" +
+        "• <b>mean</b>: the center, the best plan found so far (where to search).<br>" +
+        "• <b>std</b>: the spread, how far samples go from the mean (how widely to search).<br>" +
+        "There is one mean and one std for each of the 5 × 10 numbers. The Gaussian is diagonal: each number is sampled alone, with no covariance matrix. " +
+        "So both tensors have the same shape as one plan.<br><br>" +
+        "It starts with mean 0 and std 1. The actions are in <b>normalized units</b> " +
         "(StandardScaler fit on the dataset actions), so N(0, 1) covers the usual expert actions.<br><br>" +
         "Here horizon = receding_horizon, so no part of the last plan is left over. Every plan starts again from N(0, 1) (no warm start).",
       op: "mean = zeros(1, 5, 10)\nvar  = 1.0 * ones(1, 5, 10)    # var_scale; it is used as a std",
@@ -303,7 +312,12 @@ SCENES.top = {
       text: "The solver makes the Gaussian better, <b>30 times</b>. Each time it samples 300 candidate action sequences, " +
         "<b>imagines</b> the result of each one with the world model, and keeps the best 30. " +
         "It never calls the env. In total, one plan imagines 30 × 300 = 9,000 candidates.<br><br>" +
-        "The result is the final mean of the Gaussian. Zoom in to see one iteration.",
+        "One iteration: <b>sample</b> 300 plans (randn · std + mean), <b>score</b> them, and <b>refit</b>: the new mean and std are the mean and std of the 30 elites. " +
+        "When the elites agree, the std gets smaller and the search narrows around the best plan.<br><br>" +
+        "The mean and std are the <b>memory of the search</b>. Each iteration starts from the mean and std of the last iteration and overwrites them with better values. " +
+        "Without this, every iteration would start from random again. They live only inside this one plan step: " +
+        "the next plan step starts again from mean 0 and std 1.<br><br>" +
+        "The result is the final mean of the Gaussian. The std is not used after the last iteration. Zoom in to see one iteration.",
       op: "outputs = self.solver(info, init_action=None)\nactions = outputs[\"actions\"]   # (1, 5, 10)",
       active: ["cem"], edges: ["prep>cem", "init>cem"], zoom: "cem",
       t: {
@@ -1144,7 +1158,7 @@ function fillTensor(el, sp) {
   }
   gfx.innerHTML = html + inner;
   const shapeTxt = rank === 0 ? "() scalar" : "(" + shape.join(", ") + ")";
-  el.querySelector(".t-shape").innerHTML = shapeTxt + (sp.mult ? `<span class="t-mult">×${sp.mult}</span>` : "");
+  el.querySelector(".t-shape").innerHTML = shapeTxt + (sp.mult ? `<span class="t-mult" title="${multTip(sp)}">×${sp.mult}</span>` : "");
   el.querySelector(".t-dims").textContent = (sp.names || []).join(" · ");
 }
 
@@ -1257,6 +1271,63 @@ function stepZoomNode(scene, step) {
   return z.length === 1 ? z[0] : null;
 }
 
+/* Axis legend: only the axes that the tensors of this step use. */
+const AXES = [
+  ["Batch axes", [
+    ["E", "<b>Envs</b> (a batch of environments). The eval runs 50 envs. The solver plans for 1 at a time (<code>batch_size = 1</code>)."],
+    ["B", "<b>Batch</b>. In <code>get_cost</code> it is the same axis as E. Inside the predictor it is the 300 candidate rows."],
+    ["S", "<b>Candidates</b> (samples). The CEM solver adds this axis when it copies the frame for each candidate."],
+    ["B·S", "B and S merged into one axis: one row for each candidate."],
+    ["B·T", "Batch and time merged into one axis: one row for each frame (or latent)."],
+    ["K", "<b>Elites</b>: the candidates with the lowest cost."],
+  ]],
+  ["Action axes", [
+    ["Hz", "<b>Horizon</b>: the number of action blocks in one plan.", "H"],
+    ["A", "<b>One action block</b>: 5 env steps (frameskip) × 2 numbers (x, y) for each step, put in one vector in time order: [x₁, y₁, …, x₅, y₅]. " +
+      "The env executes the 5 actions one by one, one in each env step. The world model reads the full block at once and predicts only the latent after the 5th step."],
+    ["5·5", "5 blocks × 5 env steps: the plan as single env steps."],
+    ["steps", "Env steps in the action buffer."],
+    ["left", "Env steps that are still in the buffer."],
+    ["xy", "One env action: x and y."],
+  ]],
+  ["Time and latent axes", [
+    ["T", "<b>Time</b>: frames or latents, in order. The predictor window holds at most 3."],
+    ["D", "<b>Latent size</b>: the length of one frame embedding."],
+    ["N", "<b>Tokens</b> from the ViT: 1 CLS token + 64 image patches."],
+    ["heads", "Attention heads."],
+    ["6·D", "6 modulation vectors (shift, scale, gate × 2) of size D, from AdaLN."],
+  ]],
+  ["Image axes", [
+    ["H", "Image <b>height</b> in pixels."],
+    ["W", "Image <b>width</b> in pixels."],
+    ["C", "Color channels (RGB)."],
+  ]],
+];
+
+function axisLegend(st, i) {
+  const seen = new Map();
+  for (const id in st) {
+    const sp = st[id];
+    if (sp.step !== i || !sp.names) continue;
+    const isImage = sp.names.includes("W");
+    sp.names.forEach((nm, j) => {
+      const key = nm === "H" && !isImage ? "Hz" : nm;
+      if (!seen.has(key)) seen.set(key, new Set());
+      if (sp.shape && sp.shape[j] != null) seen.get(key).add(sp.shape[j]);
+    });
+  }
+  let rows = "";
+  for (const [sec, axes] of AXES) {
+    const r = axes.filter(([key]) => seen.has(key)).map(([key, text, shown]) =>
+      `<tr><td>${shown || key}</td><td>${[...seen.get(key)].join(", ")}</td><td>${text}</td></tr>`);
+    if (r.length) rows += `<tr class="lg-sec"><td colspan="3">${sec}</td></tr>` + r.join("");
+  }
+  if (!rows) return "";
+  let note = "";
+  if (seen.has("H") && seen.has("Hz")) note = `<p class="lg-note">H has two meanings here. In pixel tensors it is the image height. In action tensors it is the horizon.</p>`;
+  return `<h3>Axis names in this step</h3><table>${rows}</table>${note}`;
+}
+
 function renderPanel(scene, i, step, st) {
   const n = scene.steps.length;
   let html = `<div class="p-step">Step ${i + 1} of ${n} · ${scene.title}</div><h2>${step.title}</h2>`;
@@ -1272,7 +1343,7 @@ function renderPanel(scene, i, step, st) {
       rows.push(`<div class="p-t" style="--c:${KIND_COLOR(sp.kind)}"><span class="dot"></span><span class="nm">${sp.label}</span><span class="gone">used by ${scene.nodes[sp.gone].label}</span></div>`);
     } else {
       rows.push(`<div class="p-t" style="--c:${KIND_COLOR(sp.kind)}"><span class="dot"></span><span class="nm">${sp.label}</span>` +
-        `<span class="sh">${shape}${sp.mult ? " ×" + sp.mult : ""}</span></div>`);
+        `<span class="sh">${shape}${sp.mult ? ` <span title="${multTip(sp)}" style="cursor:help">×${sp.mult}</span>` : ""}</span></div>`);
     }
   }
   if (rows.length) html += `<div class="p-tensors">${rows.join("")}</div>`;
@@ -1285,15 +1356,7 @@ function renderPanel(scene, i, step, st) {
     const parent = SCENES[stack[stack.length - 2].id];
     html += `<div class="callout end">End of ${scene.title}. Press <kbd>→</kbd> to go back to <b>${parent.title}</b>.</div>`;
   }
-  html += `<div class="legend"><h3>Sizes</h3><table>
-    <tr><td>E, B</td><td>envs per solver call: 1</td></tr>
-    <tr><td>S</td><td>candidates: 300 (B·S = 300 rows)</td></tr>
-    <tr><td>H</td><td>horizon: 5 action blocks</td></tr>
-    <tr><td>A</td><td>one block: 10 (5 env steps × 2)</td></tr>
-    <tr><td>K</td><td>elites: 30</td></tr>
-    <tr><td>T</td><td>latents in the predictor window: ≤ 3</td></tr>
-    <tr><td>D</td><td>latent size: 192</td></tr>
-  </table>
+  html += `<div class="legend">${axisLegend(st, i)}
   <p style="margin:8px 0 0">Real numbers from one episode: <a href="lewm_planning.html">lewm_planning.html</a>. Training: <a href="lewm_training.html">lewm_training.html</a>.</p>
   <div class="keys"><kbd>←</kbd> <kbd>→</kbd> step · <kbd>Space</kbd> play · <kbd>Home</kbd> reset · <kbd>Enter</kbd> zoom in · <kbd>Esc</kbd> zoom out</div></div>`;
   $("panel").innerHTML = html;
@@ -1393,6 +1456,10 @@ function plotSvg(pl) {
     grid + axes + ref + curves + pts + m + ticks + cap + `</svg>${legend}</div>`;
 }
 
+/* Tooltip for the ×N badge: N tensors that have the same shape. */
+function multTip(sp) {
+  return `${sp.mult} tensors with this shape: ${sp.label}. Not one tensor that is ${sp.mult} times larger.`;
+}
 function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
 function renderChrome(scene, i) {
