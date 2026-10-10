@@ -266,7 +266,7 @@ const toFrame = (x, y, size) => (p) => [x + p[0] * size / M.window, y + p[1] * s
 
 function chartFrame(x, y, w, h, o) {
   // o: {x0,x1,y0,y1, log, xt[], yt[], cap, xl, yl}
-  const pl = 46, pr = 12, pt = 26, pb = 30;
+  const pl = 46, pr = 12, pt = o.yl ? 42 : 26, pb = o.xl ? 34 : 30;
   const X = (v) => x + pl + (v - o.x0) / (o.x1 - o.x0) * (w - pl - pr);
   const Yr = (v) => y + pt + (o.y1 - v) / (o.y1 - o.y0) * (h - pt - pb);
   const Y = o.log ? (v) => Yr(Math.log10(Math.max(v, 1e-6))) : Yr;
@@ -516,7 +516,7 @@ function drawEpisode(show, tNow) {
   v.push(poly(sl.map((e, k) => [ch.X(k), ch.Y(e.pos)]), `stroke="var(--k-act)" stroke-width="2.2"`));
   v.push(poly(sl.map((e, k) => [ch.X(k), ch.Y(e.ang)]), `stroke="var(--k-pred)" stroke-width="2.2"`));
   v.push(`<circle cx="${ch.X(t)}" cy="${ch.Y(ERR[t].pos)}" r="3.5" fill="var(--k-act)"/><circle cx="${ch.X(t)}" cy="${ch.Y(ERR[t].ang)}" r="3.5" fill="var(--k-pred)"/>`);
-  v.push(`<g transform="translate(${ch.x1 - 250} ${ch.y0 + 20})"><line x1="0" x2="22" y1="0" y2="0" stroke="var(--k-act)" stroke-width="2.2"/><text x="28" y="4">position error (px): ${fmt(ERR[t].pos)}</text>` +
+  v.push(`<g transform="translate(${ch.x1 - 250} ${ch.y0 + 34})"><line x1="0" x2="22" y1="0" y2="0" stroke="var(--k-act)" stroke-width="2.2"/><text x="28" y="4">position error (px): ${fmt(ERR[t].pos)}</text>` +
     `<line x1="0" x2="22" y1="18" y2="18" stroke="var(--k-pred)" stroke-width="2.2"/><text x="28" y="22">block angle error (°): ${fmt(ERR[t].ang)}</text></g>`);
   // timeline
   const tx = 24, ty = 520, tw = 1252, n = M.eval_budget, cw = tw / n;
