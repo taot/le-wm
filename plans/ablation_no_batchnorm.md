@@ -46,14 +46,17 @@ running stats). Check this in step 2.
 
 ## Runs
 
-Use the same seed, data, epochs and `img_size` as the baseline.
+Run A is the existing baseline in the HF bucket. See "Baseline (run A)" in
+`plans/ablation_no_sigreg.md` for its location and config. Runs C and D use
+the same config (`launcher=runpod trainer.max_epochs=3`), with only the
+changes in the table below.
 
-| Run | SIGReg | BatchNorm | `subdir` |
-|---|---|---|---|
-| A (baseline) | on | on | existing baseline, or `abl_A_base_s3072` |
-| B (from the SIGReg plan) | off | on | `abl_B_nosigreg_s3072` |
-| C | on | off | `abl_C_nobn_s3072` |
-| D | off | off | `abl_D_nosigreg_nobn_s3072` |
+| Run | SIGReg | BatchNorm | Epochs | Location |
+|---|---|---|---|---|
+| A (baseline) | on (0.09) | on | 3 | HF bucket, `pusht/2026-09-28_114752_img112_s3072` |
+| B (from the SIGReg plan) | off (0) | on | 3 | `pusht/<date>_<time>_img112_s3072_nosigreg` |
+| C | on (0.09) | off | 3 | `pusht/<date>_<time>_img112_s3072_nobn` |
+| D | off (0) | off | 3 | `pusht/<date>_<time>_img112_s3072_nosigreg_nobn` |
 
 If budget is small: do D first (with B, it shows if BatchNorm gives any
 protection). C is the least important.
@@ -84,41 +87,52 @@ here. Then delete the `abl_smoke_nobn` checkpoint folder.
 
 ### 3. Full runs (RunPod)
 
-Use the same wandb flags as the baseline (see `docs/training.md`).
+Same config as run A, with only the BatchNorm (and for D, the SIGReg)
+overrides:
 
 ```bash
 # C: no BatchNorm
-python train.py data=pusht num_workers=16 \
-    wandb.enabled=True wandb.config.entity=<entity> wandb.config.project=lewm \
+python train.py launcher=runpod data=pusht trainer.max_epochs=3 \
     model.projector.norm_fn=null model.pred_proj.norm_fn=null \
-    subdir=abl_C_nobn_s3072
+    'subdir=${now:%Y-%m-%d_%H%M%S}_img${img_size}_s${seed}_nobn'
 
 # D: no SIGReg and no BatchNorm
-python train.py data=pusht num_workers=16 \
-    wandb.enabled=True wandb.config.entity=<entity> wandb.config.project=lewm \
+python train.py launcher=runpod data=pusht trainer.max_epochs=3 \
     loss.sigreg.weight=0 \
     model.projector.norm_fn=null model.pred_proj.norm_fn=null \
-    subdir=abl_D_nosigreg_nobn_s3072
+    'subdir=${now:%Y-%m-%d_%H%M%S}_img${img_size}_s${seed}_nosigreg_nobn'
 ```
 
-For D, look at the wandb curves early (first 1 to 3 epochs). If `pred_loss`
-goes to about 0 and `sigreg_loss` goes up a lot, the model has collapsed.
-You can stop the run early to save money. Record the epoch where this
-occurs, and compare it with run B.
+**Run names:** each run folder has the start date and time, like the
+baseline. The `subdir` override above adds a label at the end, for example
+`pusht/2026-10-14_063811_img112_s3072_nobn`. Keep the single quotes, so
+that the shell does not expand `${...}`. Hydra fills in the values. The
+date and time are not known before the run starts, so read the real folder
+name from the first lines of the training log (or from wandb) and write it
+in the runs table. To resume a run, pass that real name: `subdir=<name>`.
+
+Before each run starts, check the config: add `--cfg job` to the command,
+and diff the output against the baseline `config.yaml`. The only
+differences must be the overrides above and the bookkeeping keys.
+
+For D, look at the wandb curves during the run. If `pred_loss` goes to
+about 0 and `sigreg_loss` goes up a lot, the model has collapsed. Record the
+step where this occurs, and compare it with run B. Do not stop the run
+early: with only 3 epochs, all 3 checkpoints are necessary.
 
 ### 4. Eval
 
-Evaluate the same epochs as the baseline:
+Evaluate all 3 epochs, with the same eval config as A and B:
 
 ```bash
-for r in abl_C_nobn_s3072 abl_D_nosigreg_nobn_s3072; do
-  for e in 010 050 100; do
+C=<real subdir of run C>   # for example 2026-10-14_063811_img112_s3072_nobn
+D=<real subdir of run D>   # for example 2026-10-14_091502_img112_s3072_nosigreg_nobn
+for r in $C $D; do
+  for e in 001 002 003; do
     python eval.py --config-name=pusht.yaml policy=pusht/$r/weights_epoch_$e.pt eval.img_size=112
   done
 done
 ```
-
-If a run was stopped early, evaluate the last saved epoch.
 
 ### 5. Collapse metrics (optional)
 
@@ -127,7 +141,7 @@ last epoch of C and D.
 
 ## What to record
 
-| Run | final `pred_loss` | final `sigreg_loss` | eff. rank | collapse epoch | success @10 | @50 | @100 |
+| Run | final `pred_loss` | final `sigreg_loss` | eff. rank | collapse step | success @1 | @2 | @3 |
 |---|---|---|---|---|---|---|---|
 | A | | | | | | | |
 | B | | | | | | | |

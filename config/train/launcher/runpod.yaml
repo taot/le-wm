@@ -1,0 +1,18 @@
+# @package _global_
+# RunPod launcher configuration: one pod, so the same basic launcher as local,
+# with wandb on and more data loader workers
+
+defaults:
+  - override /hydra/launcher: basic
+
+num_workers: 16
+
+wandb:
+  enabled: True
+  config:
+    entity: librakevin-workday
+    project: lewm
+    name: ${run_name}
+    id: ${subdir}
+    resume: allow
+    log_model: False

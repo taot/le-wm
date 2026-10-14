@@ -93,11 +93,12 @@ tmux new -s train
 Then start training:
 
 ```bash
-python train.py data=pusht num_workers=16 \
-    wandb.enabled=True wandb.config.entity=<your_entity> wandb.config.project=lewm
+python train.py launcher=runpod data=pusht
 ```
 
-**Why the wandb settings go on the command line:** `config/train/launcher/local.yaml` sets `wandb.enabled: False` and `entity: lewm`, and it is applied after `lewm.yaml` (because `_self_` comes first in the `defaults` list). So wandb values written in `lewm.yaml` are overwritten. Pass them on the command line, or move `_self_` to the end of the `defaults` list.
+**What `launcher=runpod` does:** `config/train/launcher/runpod.yaml` sets `num_workers: 16` and turns on wandb with entity `librakevin-workday` and project `lewm`. Both launchers use Hydra's `basic` launcher, because a pod is one machine. The default `launcher/local.yaml` sets `wandb.enabled: False` and `entity: lewm`, for local smoke tests. If you use a different wandb entity, change it in `runpod.yaml` or pass `wandb.config.entity=<your_entity>`.
+
+**Why wandb values in `lewm.yaml` have no effect:** the launcher file is applied after `lewm.yaml` (because `_self_` comes first in the `defaults` list). So the launcher's wandb values overwrite the values in `lewm.yaml`. Set them in the launcher file or on the command line.
 
 ## Checkpoints
 

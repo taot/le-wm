@@ -32,14 +32,45 @@ collapse monitor.
 |---|---|
 | Remove SIGReg | `loss.sigreg.weight=0` |
 
+## Baseline (run A)
+
+Run A is an existing run. Do not train it again:
+
+- HF bucket: `librakevin/lewm-checkpoints`, folder
+  `pusht/2026-09-28_114752_img112_s3072`
+  (<https://huggingface.co/buckets/librakevin/lewm-checkpoints/tree/pusht/2026-09-28_114752_img112_s3072>)
+- Files: `config.yaml`, `config.json`, `weights_epoch_001.pt` to
+  `weights_epoch_003.pt`.
+
+Its `config.yaml` is the same as the config from
+`launcher=runpod trainer.max_epochs=3`:
+
+| Key | Baseline value | Where it comes from |
+|---|---|---|
+| `trainer.max_epochs` | **3** | command line (the default in `lewm.yaml` is different) |
+| `num_workers` | 16 | `launcher/runpod.yaml` |
+| `wandb.enabled` | true | `launcher/runpod.yaml` |
+| `wandb.config.entity` | `librakevin-workday` | `launcher/runpod.yaml` |
+| `wandb.config.project` | `lewm` | `launcher/runpod.yaml` |
+
+All other values (seed 3072, `img_size` 112, batch size 128, lr 5e-5,
+weight decay 1e-3, bf16, gradient clip 1.0, SIGReg knots 17 and
+`num_proj` 1024, the data, and the model with BatchNorm) come from
+`lewm.yaml` and are the same. I checked this on 2026-10-14 with a diff of
+the bucket `config.yaml` against
+`python train.py --cfg job launcher=runpod data=pusht trainer.max_epochs=3`.
+The only other differences are bookkeeping (`subdir`, `run_name`,
+`wandb.config.name`, `data.env`, and `action_encoder.input_dim`, which
+`train.py` sets at runtime to 10).
+
 ## Runs
 
-Use the same seed, data, epochs and `img_size` as the baseline.
+Run B uses the baseline config. The only change is `loss.sigreg.weight=0`.
 
-| Run | SIGReg | BatchNorm | `subdir` |
-|---|---|---|---|
-| A (baseline) | on | on | existing baseline, or `abl_A_base_s3072` |
-| B | off | on | `abl_B_nosigreg_s3072` |
+| Run | SIGReg | BatchNorm | Epochs | Location |
+|---|---|---|---|---|
+| A (baseline) | on (0.09) | on | 3 | HF bucket, `pusht/2026-09-28_114752_img112_s3072` |
+| B | off (0) | on | 3 | `pusht/<date>_<time>_img112_s3072_nosigreg` |
 
 If time permits: repeat with a second seed (for example 3073) to see the
 noise between seeds.
@@ -64,30 +95,48 @@ Then delete the `abl_smoke_nosigreg` checkpoint folder.
 
 ### 2. Full run (RunPod)
 
-Use the same wandb flags as the baseline (see `docs/training.md`).
+Same config as run A, only with `loss.sigreg.weight=0`:
 
 ```bash
-python train.py data=pusht num_workers=16 \
-    wandb.enabled=True wandb.config.entity=<entity> wandb.config.project=lewm \
+python train.py launcher=runpod data=pusht trainer.max_epochs=3 \
     loss.sigreg.weight=0 \
-    subdir=abl_B_nosigreg_s3072
+    'subdir=${now:%Y-%m-%d_%H%M%S}_img${img_size}_s${seed}_nosigreg'
 ```
 
-Look at the wandb curves early (first 1 to 3 epochs). If `pred_loss` goes
-to about 0 and `sigreg_loss` goes up a lot, the model has collapsed. You
-can stop the run early to save money. Record the epoch where this occurs.
+**Run names:** each run folder has the start date and time, like the
+baseline. The `subdir` override above adds a label at the end, for example
+`pusht/2026-10-14_063811_img112_s3072_nosigreg`. Keep the single quotes, so
+that the shell does not expand `${...}`. Hydra fills in the values. The
+date and time are not known before the run starts, so read the real folder
+name from the first lines of the training log (or from wandb) and write it
+in the runs table. To resume a run, pass that real name: `subdir=<name>`.
+
+Before the run starts, check the config: add `--cfg job` to the command
+above, and diff the output against the baseline `config.yaml`. The only
+differences must be `loss.sigreg.weight` and the bookkeeping keys.
+
+Look at the wandb curves during the run. If `pred_loss` goes to about 0 and
+`sigreg_loss` goes up a lot, the model has collapsed. Record the step where
+this occurs. Do not stop the run early: with only 3 epochs, all 3
+checkpoints are necessary for the comparison with A.
 
 ### 3. Eval
 
-Evaluate the same epochs as the baseline:
+Evaluate all 3 epochs of A and B with the same eval config. If the
+baseline eval numbers were made with a different eval config, run A again
+too.
 
 ```bash
-for e in 010 050 100; do
-  python eval.py --config-name=pusht.yaml policy=pusht/abl_B_nosigreg_s3072/weights_epoch_$e.pt eval.img_size=112
+B=<real subdir of run B>   # for example 2026-10-14_063811_img112_s3072_nosigreg
+for r in 2026-09-28_114752_img112_s3072 $B; do
+  for e in 001 002 003; do
+    python eval.py --config-name=pusht.yaml policy=pusht/$r/weights_epoch_$e.pt eval.img_size=112
+  done
 done
 ```
 
-If the run was stopped early, evaluate the last saved epoch.
+To evaluate A, first download its folder from the HF bucket to
+`$STABLEWM_HOME/checkpoints/pusht/2026-09-28_114752_img112_s3072/`.
 
 ### 4. Collapse metrics (optional, needs a small new script)
 
@@ -104,7 +153,7 @@ Run it on the last epoch of A and B. The BatchNorm plan uses the same script.
 
 ## What to record
 
-| Run | final `pred_loss` | final `sigreg_loss` | eff. rank | success @10 | @50 | @100 |
+| Run | final `pred_loss` | final `sigreg_loss` | eff. rank | success @1 | @2 | @3 |
 |---|---|---|---|---|---|---|
 | A | | | | | | |
 | B | | | | | | |
