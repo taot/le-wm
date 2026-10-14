@@ -27,7 +27,7 @@ The model is small, so GPU memory is not the limit. The usual bottleneck is **da
 
 CPU matters as much as the GPU:
 
-- Pick an instance with **16+ vCPUs**, and raise `num_workers` from the default 6.
+- Pick an instance with **16+ vCPUs**. More workers can be faster, but each worker is a spawned process that uses ~1 GB of memory and many threads. On a pod with a 58 GB memory limit, 16 workers crashed the run, and 6 worked.
 - Keep the dataset on **local NVMe**, not a network volume.
 
 A single L40S or A100 costs roughly $1–2/hr on RunPod, Lambda, or Vast.ai.
@@ -105,7 +105,7 @@ Then start training:
 python train.py launcher=runpod data=pusht
 ```
 
-**What `launcher=runpod` does:** `config/train/launcher/runpod.yaml` sets `num_workers: 16` and turns on wandb with entity `librakevin-workday` and project `lewm`. Both launchers use Hydra's `basic` launcher, because a pod is one machine. The default `launcher/local.yaml` sets `wandb.enabled: False`, for local smoke tests. It has the same entity and project, so `wandb.enabled=True` is enough to log a local run. If you use a different wandb entity, change it in `runpod.yaml` or pass `wandb.config.entity=<your_entity>`.
+**What `launcher=runpod` does:** `config/train/launcher/runpod.yaml` sets `num_workers: 6` and turns on wandb with entity `librakevin-workday` and project `lewm`. Both launchers use Hydra's `basic` launcher, because a pod is one machine. The default `launcher/local.yaml` sets `wandb.enabled: False`, for local smoke tests. It has the same entity and project, so `wandb.enabled=True` is enough to log a local run. If you use a different wandb entity, change it in `runpod.yaml` or pass `wandb.config.entity=<your_entity>`.
 
 **Why wandb values in `lewm.yaml` have no effect:** the launcher file is applied after `lewm.yaml` (because `_self_` comes first in the `defaults` list). So the launcher's wandb values overwrite the values in `lewm.yaml`. Set them in the launcher file or on the command line.
 

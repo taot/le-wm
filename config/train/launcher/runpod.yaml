@@ -1,11 +1,15 @@
 # @package _global_
 # RunPod launcher configuration: one pod, so the same basic launcher as local,
-# with wandb on and more data loader workers
+# with wandb on
 
 defaults:
   - override /hydra/launcher: basic
 
-num_workers: 16
+# Workers are spawned (stable_worldmodel forces spawn for LanceDB), and each one
+# uses ~1 GB and many threads. With 16 (x2 for train + val), a pod with a 58 GB
+# memory limit and 8704 threads crashed. 6 was tested on that pod and works.
+# The worker count does not change the training result.
+num_workers: 6
 
 wandb:
   enabled: True

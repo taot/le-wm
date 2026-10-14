@@ -48,7 +48,7 @@ Its `config.yaml` is the same as the config from
 | Key | Baseline value | Where it comes from |
 |---|---|---|
 | `trainer.max_epochs` | **3** | command line (the default in `lewm.yaml` is different) |
-| `num_workers` | 16 | `launcher/runpod.yaml` |
+| `num_workers` | 16 | run B uses 6 from `launcher/runpod.yaml`; this does not change the result (see below) |
 | `wandb.enabled` | true | `launcher/runpod.yaml` |
 | `wandb.config.entity` | `librakevin-workday` | `launcher/runpod.yaml` |
 | `wandb.config.project` | `lewm` | `launcher/runpod.yaml` |
@@ -62,6 +62,12 @@ the bucket `config.yaml` against
 The only other differences are bookkeeping (`subdir`, `run_name`,
 `wandb.config.name`, `data.env`, and `action_encoder.input_dim`, which
 `train.py` sets at runtime to 10).
+
+`num_workers` is different on purpose. With 16 workers, run B crashed on a
+RunPod pod with a 58 GB memory limit and a limit of 8704 threads (see the
+comments in `launcher/runpod.yaml` and `.env-runpod`). The main process
+chooses the samples for each batch, and the transforms have no random part,
+so the worker count changes only the speed, not the result.
 
 ## Runs
 
@@ -100,8 +106,12 @@ Same config as run A, only with `loss.sigreg.weight=0`:
 ```bash
 python train.py launcher=runpod data=pusht trainer.max_epochs=3 \
     loss.sigreg.weight=0 \
-    'subdir=${now:%Y-%m-%d_%H%M%S}_img${img_size}_s${seed}_nosigreg'
+    'subdir=${now:%Y-%m-%d_%H%M%S}_img${img_size}_s${seed}_nosigreg' \
+    > train_nosigreg.log 2>&1
 ```
+
+The command writes all output (stdout and stderr) to `train_nosigreg.log`.
+To see the output live, run `tail -f train_nosigreg.log`.
 
 **Run names:** each run folder has the start date and time, like the
 baseline. The `subdir` override above adds a label at the end, for example
