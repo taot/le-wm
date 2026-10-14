@@ -34,13 +34,22 @@ A single L40S or A100 costs roughly $1–2/hr on RunPod, Lambda, or Vast.ai.
 
 ## How long it takes
 
-These are estimates, not measurements (based on the paper's "a few hours on a single GPU"):
+Measured with the default settings in the table above (`img_size: 112`, batch size 128):
 
-| GPU | 100 epochs |
+| Run | Epochs | Time | Per epoch |
+|---|---|---|---|
+| RTX 5090 | 10 | ~6 hours | ~36 min |
+| `pusht/2026-09-28_114752_img112_s3072` (`num_workers: 16`) | 3 | < 1 h 48 min (from the start time in the folder name to the upload) | ≤ ~36 min |
+
+So plan for about **35 minutes per epoch**:
+
+| Epochs | Time |
 |---|---|
-| A100 / L40S | ~3–8 hours |
-| RTX 4090 / A10G | similar to slightly slower |
-| L4 | roughly 2–3× longer |
+| 3 | ~1.75 hours |
+| 10 | ~6 hours |
+| 100 | ~60 hours |
+
+An older version of this page said "~3–8 hours for 100 epochs" on an A100 or L40S. That was an estimate from the paper's "a few hours on a single GPU", not a measurement, and it is about 10× too low for this setup. Data loading is the probable bottleneck, so a faster GPU alone will probably not change these times much.
 
 To get a real number for your run:
 
