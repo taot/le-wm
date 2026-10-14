@@ -13,7 +13,7 @@ With the default config (`config/train/lewm.yaml` + `config/train/data/pusht.yam
 | Frames per sample | 4 (`history_size: 3` + `num_preds: 1`), `frameskip: 5` |
 | Batch size | 128 → 512 images per step |
 | Precision | bf16 |
-| Epochs | 100 |
+| Epochs | `max_epochs: 10` (the original config used `100`) |
 
 The model is small, so GPU memory is not the limit. The usual bottleneck is **data loading**: decoding and preprocessing 512 frames per step on the CPU.
 
@@ -96,7 +96,7 @@ Then start training:
 python train.py launcher=runpod data=pusht
 ```
 
-**What `launcher=runpod` does:** `config/train/launcher/runpod.yaml` sets `num_workers: 16` and turns on wandb with entity `librakevin-workday` and project `lewm`. Both launchers use Hydra's `basic` launcher, because a pod is one machine. The default `launcher/local.yaml` sets `wandb.enabled: False` and `entity: lewm`, for local smoke tests. If you use a different wandb entity, change it in `runpod.yaml` or pass `wandb.config.entity=<your_entity>`.
+**What `launcher=runpod` does:** `config/train/launcher/runpod.yaml` sets `num_workers: 16` and turns on wandb with entity `librakevin-workday` and project `lewm`. Both launchers use Hydra's `basic` launcher, because a pod is one machine. The default `launcher/local.yaml` sets `wandb.enabled: False`, for local smoke tests. It has the same entity and project, so `wandb.enabled=True` is enough to log a local run. If you use a different wandb entity, change it in `runpod.yaml` or pass `wandb.config.entity=<your_entity>`.
 
 **Why wandb values in `lewm.yaml` have no effect:** the launcher file is applied after `lewm.yaml` (because `_self_` comes first in the `defaults` list). So the launcher's wandb values overwrite the values in `lewm.yaml`. Set them in the launcher file or on the command line.
 

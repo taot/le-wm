@@ -7,7 +7,7 @@ defaults:
 wandb:
   enabled: False
   config:
-    entity: lewm
+    entity: librakevin-workday
     project: lewm
     name: ${run_name}
     id: ${subdir}
