@@ -454,7 +454,7 @@ def _(gauss_ref, mo):
     use the same random directions (fixed seed). We give two values:
 
     - **SIGReg (raw)**: on the latents as they are. This is the value that
-      the training loss sees. Compare it with `train/sigreg_loss` in W&B.
+      the training loss sees. Compare it with `fit/sigreg_loss` in W&B.
     - **SIGReg (standardized)**: after we shift and scale each dimension to
       mean 0 and std 1. This removes the scale problem and shows only the
       **shape** problem (for example, a few dimensions that move together).
@@ -700,12 +700,18 @@ def _(mo):
     mo.md(r"""
     ## 8. Training curves from W&B (optional)
 
-    During training, `train/sigreg_loss` was logged also for the run without
+    During training, `fit/sigreg_loss` was logged also for the run without
     SIGReg (its weight was 0, so it had no effect on training). It is a
     collapse monitor with one value for each step. A value that goes up
     shows when the latents move away from N(0, I).
 
-    Also look at `train/pred_loss`. Without SIGReg, a prediction loss that
+    **The value for a complete collapse is about 51.46.** If all 128
+    points of a batch are at the same place near 0, the SIGReg loss is
+    128 × Σₖ wₖ (1 − φ(tₖ))² ≈ 51.46. (If that place is far from 0, the
+    value is higher.) So a curve that stays at about 51.4 means a complete
+    collapse near 0.
+
+    Also look at `fit/pred_loss`. Without SIGReg, a prediction loss that
     goes to almost zero is a sign of the "easy" collapsed solution.
 
     This cell reads the two curves with the W&B API. You must be logged in
@@ -722,7 +728,7 @@ def _(COLORS, RUNS, labels, mo, plt):
         import wandb
 
         api = wandb.Api(timeout=30)
-        keys = ["trainer/global_step", "train/sigreg_loss", "train/pred_loss"]
+        keys = ["trainer/global_step", "fit/sigreg_loss", "fit/pred_loss"]
         return {_l: api.run(f"librakevin-workday/lewm/{RUNS[_l]}").history(keys=keys, samples=2000) for _l in labels}
 
     try:
@@ -731,7 +737,7 @@ def _(COLORS, RUNS, labels, mo, plt):
         _out = mo.callout(mo.md(f"Could not read W&B: `{type(_err).__name__}: {str(_err)[:300]}`"), kind="warn")
     else:
         _fig, _axes = plt.subplots(1, 2, figsize=(11, 3.4))
-        for _a, _key in zip(_axes, ["train/sigreg_loss", "train/pred_loss"]):
+        for _a, _key in zip(_axes, ["fit/sigreg_loss", "fit/pred_loss"]):
             for _l in labels:
                 _h = _hist[_l].dropna(subset=[_key])
                 _x = _h["trainer/global_step"] if "trainer/global_step" in _h else _h["_step"]
