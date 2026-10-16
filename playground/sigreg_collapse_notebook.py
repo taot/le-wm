@@ -30,15 +30,18 @@ def _(mo):
 
     EMB_DIR = Path(os.environ.get("STABLEWM_HOME", Path.home() / ".stable_worldmodel")) / "embeddings" / "pusht"
 
-    # Run label -> run folder. Color slot 1 (blue) and slot 2 (orange) of the reference palette.
+    # Run label -> run folder. Color slots 1-3 (blue, orange, aqua) of the reference palette.
     RUNS = {
         "SIGReg": "2026-09-28_114752_img112_s3072",
         "no SIGReg": "2026-10-14_115337_img112_s3072_nosigreg",
+        "SIGReg 10 ep (img224)": "2026-10-10_120411_img224_s3072",
     }
-    COLORS = {"SIGReg": "#2a78d6", "no SIGReg": "#eb6834"}
+    COLORS = {"SIGReg": "#2a78d6", "no SIGReg": "#eb6834", "SIGReg 10 ep (img224)": "#1baf7a"}
+    # Runs that logged to W&B (the 10-epoch run had wandb.enabled=false).
+    WANDB_RUNS = ["SIGReg", "no SIGReg"]
 
     plt.rcParams.update({"figure.dpi": 110, "axes.grid": True, "grid.alpha": 0.3})
-    return COLORS, EMB_DIR, RUNS, SIGReg, np, plt, torch
+    return COLORS, EMB_DIR, RUNS, SIGReg, WANDB_RUNS, np, plt, torch
 
 
 @app.cell(hide_code=True)
@@ -46,13 +49,20 @@ def _(mo):
     mo.md(r"""
     # Latent collapse with and without SIGReg
 
-    This notebook compares the latent states of two PushT runs. The runs are
-    the same, except for one setting:
+    This notebook compares the latent states of PushT runs. The main
+    comparison is between run A and run B. They are the same, except for
+    one setting: the SIGReg weight.
 
-    | Run | `loss.sigreg.weight` | Folder |
-    |---|---|---|
-    | **SIGReg** (run A, baseline) | 0.09 | `pusht/2026-09-28_114752_img112_s3072` |
-    | **no SIGReg** (run B) | 0 | `pusht/2026-10-14_115337_img112_s3072_nosigreg` |
+    | Run | `loss.sigreg.weight` | Image size | Epochs | Folder |
+    |---|---|---|---|---|
+    | **SIGReg** (run A, baseline) | 0.09 | 112 | 3 | `pusht/2026-09-28_114752_img112_s3072` |
+    | **no SIGReg** (run B) | 0 | 112 | 3 | `pusht/2026-10-14_115337_img112_s3072_nosigreg` |
+    | **SIGReg 10 ep (img224)** | 0.09 | 224 | 10 | `pusht/2026-10-10_120411_img224_s3072` |
+
+    The third run is an older run with SIGReg and longer training. We use
+    it to see what happens to the latents after epoch 3 (section 10). It
+    also uses a larger image size, so it is not a clean comparison with
+    run A.
 
     **Why SIGReg is necessary.** The training loss asks the predictor to
     predict the next embedding. There is an easy way to make this loss zero:
@@ -69,16 +79,21 @@ def _(mo):
     - **Dimensional collapse.** The points spread out, but only along a few
       directions. The other directions are not used.
 
-    **Before you run this notebook**, encode the frames one time
-    (about 4 minutes on a laptop):
+    **Before you run this notebook**, encode the frames one time. The
+    script needs one image size for all checkpoints in one call, so the
+    224-pixel run is a separate call:
 
     ```
     uv run python scripts/extract_embeddings.py
+    uv run python scripts/extract_embeddings.py --runs pusht/2026-10-10_120411_img224_s3072 --batch-size 128
     ```
 
-    The script encodes the same 21,094 frames with each checkpoint
-    (epochs 1, 2 and 3 of both runs). It saves one `.npz` file for each
-    checkpoint in `$STABLEWM_HOME/embeddings/pusht/<run>/`.
+    On a laptop, the first call takes about 4 minutes (epochs 1–3 of runs
+    A and B), and the second takes about 22 minutes (epochs 1–10).
+    Both calls encode the same 21,094 frames (same seed). The script saves
+    one `.npz` file for each checkpoint in
+    `$STABLEWM_HOME/embeddings/pusht/<run>/`. If a run has no files, the
+    notebook leaves it out.
     """)
     return
 
@@ -93,8 +108,17 @@ def _(EMB_DIR, RUNS, mo, np):
     if not data:
         raise FileNotFoundError(f"no embeddings in {EMB_DIR}; run scripts/extract_embeddings.py first")
 
-    labels = list(RUNS)
+    labels = [_l for _l in RUNS if any(_k[0] == _l for _k in data)]
     epochs = sorted({e for _, e in data})
+
+    def runs_at(ep: int) -> list[str]:
+        """Runs that have a checkpoint at this epoch."""
+        return [_l for _l in labels if (_l, ep) in data]
+
+    def run_epochs(label: str) -> list[int]:
+        """Epochs of one run."""
+        return sorted(e for _l, e in data if _l == label)
+
     mo.ui.table(
         [
             {
@@ -109,7 +133,7 @@ def _(EMB_DIR, RUNS, mo, np):
         ],
         selection=None,
     )
-    return data, epochs, labels
+    return data, epochs, labels, run_epochs, runs_at
 
 
 @app.cell(hide_code=True)
@@ -140,8 +164,11 @@ def _(mo):
     BatchNorm is in the hidden layer, not at the output. So the BatchNorm
     does not prevent a collapse of `emb`.
 
-    The **epoch** selector controls the plots that show one epoch. The
-    "over epochs" plots in section 7 always show all epochs.
+    The **epoch** selector controls the plots that show one epoch. Each
+    plot shows only the runs that have a checkpoint at that epoch. So for
+    epochs 1–3 you see all three runs, and for epochs 4–10 you see only
+    the 10-epoch run. The "over epochs" plots in section 7 always show all
+    epochs.
     """)
     return
 
@@ -153,7 +180,8 @@ def _(epochs, mo):
         value="emb (projector output)",
         label="Latent",
     )
-    epoch = mo.ui.dropdown({str(e): e for e in epochs}, value=str(epochs[-1]), label="Epoch")
+    # Default: the last epoch that all runs have (3), so the first plots compare all runs.
+    epoch = mo.ui.dropdown({str(e): e for e in epochs}, value=str(min(3, epochs[-1])), label="Epoch")
     mo.hstack([space, epoch], justify="start", gap=2)
     return epoch, space
 
@@ -223,6 +251,7 @@ def _(data, eigenvalues, labels, latents, np, sigreg_statistic):
         _p = _ev / _ev.sum()
         _p = _p[_p > 0]
         _std = _x.std(0)
+        _cum = np.cumsum(_ev) / _ev.sum()
         metrics[(_label, _ep)] = {
             "mean_norm": np.linalg.norm(_x.mean(0)),
             "total_var": _ev.sum(),
@@ -231,7 +260,9 @@ def _(data, eigenvalues, labels, latents, np, sigreg_statistic):
             "dim_std": _std,
             "erank": np.exp(-(_p * np.log(_p)).sum()),
             "pr": _ev.sum() ** 2 / (_ev**2).sum(),
-            "sigreg": sigreg_statistic(_x),
+            "n90": int(np.searchsorted(_cum, 0.9) + 1),
+            "n99": int(np.searchsorted(_cum, 0.99) + 1),
+            "sigreg":sigreg_statistic(_x),
             "sigreg_z": sigreg_statistic((_x - _x.mean(0)) / _std),
             "r2": linear_probe(_label, _ep),
         }
@@ -300,9 +331,9 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, labels, metrics, plt, space):
+def _(COLORS, epoch, metrics, plt, runs_at, space):
     _fig, _ax = plt.subplots(figsize=(7, 3.6))
-    for _l in labels:
+    for _l in runs_at(epoch.value):
         _ax.plot(sorted(metrics[(_l, epoch.value)]["dim_std"], reverse=True), color=COLORS[_l], lw=2, label=_l)
     _ax.axhline(1, color="0.4", lw=1, ls="--", label="N(0, I): std = 1")
     _ax.set_yscale("log")
@@ -338,11 +369,11 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, labels, latents, np, plt, space):
+def _(COLORS, epoch, latents, np, plt, runs_at, space):
     _rng = np.random.default_rng(0)
     _fig, _ax = plt.subplots(figsize=(7, 3.6))
     _all = []
-    for _l in labels:
+    for _l in runs_at(epoch.value):
         _x = latents(_l, epoch.value)
         _i, _j = _rng.integers(0, len(_x), (2, 5000))
         _keep = _i != _j
@@ -397,9 +428,9 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, labels, metrics, mo, np, plt, space):
+def _(COLORS, epoch, metrics, mo, plt, runs_at, space):
     _fig, (_a1, _a2) = plt.subplots(1, 2, figsize=(10, 3.8))
-    for _l in labels:
+    for _l in runs_at(epoch.value):
         _ev = metrics[(_l, epoch.value)]["eigenvalues"]
         _a1.plot(_ev, color=COLORS[_l], lw=2, label=_l)
         _a2.plot(_ev / _ev.sum(), color=COLORS[_l], lw=2, label=_l)
@@ -424,9 +455,8 @@ def _(COLORS, epoch, labels, metrics, mo, np, plt, space):
                         "effective rank": f"{_m['erank']:.1f}",
                         "participation ratio": f"{_m['pr']:.1f}",
                         "top component share": f"{_m['eigenvalues'][0] / _m['total_var']:.1%}",
-                        "components for 90% of variance": int(
-                            np.searchsorted(np.cumsum(_m["eigenvalues"]) / _m["total_var"], 0.9) + 1
-                        ),
+                        "components for 90% of variance": _m["n90"],
+                        "components for 99% of variance": _m["n99"],
                     }
                     for (_l, _e), _m in metrics.items()
                 ],
@@ -489,7 +519,7 @@ def _(mo):
     mo.md(r"""
     ### 4.2 Histograms along random directions
 
-    We take 4 random unit directions (the same 4 for both runs) and project
+    We take 4 random unit directions (the same 4 for all runs) and project
     every latent onto them. Each histogram shows the projected values. The
     gray curve is the N(0, 1) density, which is what SIGReg wants.
 
@@ -503,13 +533,14 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, labels, latents, np, plt, space):
+def _(COLORS, epoch, latents, np, plt, runs_at, space):
     _rng = np.random.default_rng(1)
     _dirs = _rng.standard_normal((192, 4))
     _dirs /= np.linalg.norm(_dirs, axis=0)
     _grid = np.linspace(-4, 4, 200)
-    _fig, _axes = plt.subplots(len(labels), 4, figsize=(11, 2.6 * len(labels)), sharex=True)
-    for _r, _l in enumerate(labels):
+    _runs = runs_at(epoch.value)
+    _fig, _axes = plt.subplots(len(_runs), 4, figsize=(11, 2.6 * len(_runs)), sharex=True, squeeze=False)
+    for _r, _l in enumerate(_runs):
         _proj = latents(_l, epoch.value) @ _dirs
         for _c in range(4):
             _a = _axes[_r, _c]
@@ -536,7 +567,7 @@ def _(COLORS, epoch, labels, latents, np, plt, space):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    **How to read it.** For the SIGReg run, the bars should follow the gray
+    **How to read it.** For a SIGReg run, the bars should follow the gray
     curve. For a collapsed run, all values fall into one bar, so the
     histogram is one tall, thin bar. Its height is 10, because the bar is
     0.1 wide and holds all the frames. The gray N(0, 1) curve is then small
@@ -572,20 +603,21 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, PROBE_TARGETS, epoch, labels, metrics, np, plt, space):
-    _fig, _ax = plt.subplots(figsize=(9, 3.6))
-    _w = 0.38
+def _(COLORS, PROBE_TARGETS, epoch, metrics, np, plt, runs_at, space):
+    _runs = runs_at(epoch.value)
+    _fig, _ax = plt.subplots(figsize=(10, 4))
+    _w = 0.8 / len(_runs)
     _xs = np.arange(len(PROBE_TARGETS))
-    for _k, _l in enumerate(labels):
+    for _k, _l in enumerate(_runs):
         _r2 = metrics[(_l, epoch.value)]["r2"]
-        _bars = _ax.bar(_xs + (_k - 0.5) * _w, _r2, width=_w - 0.02, color=COLORS[_l], label=_l)
+        _bars = _ax.bar(_xs + (_k - (len(_runs) - 1) / 2) * _w, _r2, width=_w - 0.02, color=COLORS[_l], label=_l)
         _ax.bar_label(_bars, fmt="%.2f", fontsize=7, padding=2)
     _ax.set_xticks(_xs, PROBE_TARGETS)
-    _ax.set_ylim(min(0, min(metrics[(_l, epoch.value)]["r2"].min() for _l in labels)) - 0.05, 1.08)
+    _ax.set_ylim(min(0, min(metrics[(_l, epoch.value)]["r2"].min() for _l in _runs)) - 0.05, 1.1)
     _ax.axhline(0, color="0.3", lw=1)
     _ax.set_ylabel("test R²")
     _ax.set_title(f"Linear probe from the standardized latent, {space.value}, epoch {epoch.value}")
-    _ax.legend(loc="upper right")
+    _ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=len(_runs), frameon=False)
     _fig.tight_layout()
     _fig
     return
@@ -615,9 +647,10 @@ def _(mo):
 
 
 @app.cell
-def _(data, epoch, labels, latents, np, plt, space):
-    _fig, _axes = plt.subplots(2, len(labels), figsize=(5.2 * len(labels), 8.4))
-    for _k, _l in enumerate(labels):
+def _(data, epoch, latents, np, plt, runs_at, space):
+    _runs = runs_at(epoch.value)
+    _fig, _axes = plt.subplots(2, len(_runs), figsize=(5.2 * len(_runs), 8.4), squeeze=False)
+    for _k, _l in enumerate(_runs):
         _x = latents(_l, epoch.value)
         _mu = _x.mean(0)
         _, _s, _vt = np.linalg.svd(_x - _mu, full_matrices=False)
@@ -649,12 +682,14 @@ def _(mo):
     mo.md(r"""
     ## 7. Over epochs: when does the collapse happen?
 
-    These plots show the main numbers for epochs 1, 2 and 3 of both runs,
-    for the selected latent. Each plot has one measure, so each plot has
-    one y-axis.
+    These plots show the main numbers for every epoch of every run, for
+    the selected latent. Runs A and B have 3 epochs, and the img224 run has
+    10. Each plot has one measure, so each plot has one y-axis.
 
     - **Total variance** (log scale): the size of the cloud (section 1).
     - **Effective rank**: the number of directions used (section 3).
+    - **Directions for 99% of the variance**: a second count of the
+      directions used (section 3).
     - **SIGReg (raw)** (log scale): the distance from N(0, I) (section 4).
       The dashed line is the N(0, I) reference.
     - **Mean probe R²**: the mean over the 6 targets (section 5).
@@ -667,20 +702,22 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epochs, gauss_ref, labels, metrics, plt, space):
-    _fig, _axes = plt.subplots(1, 4, figsize=(13, 3.2))
+def _(COLORS, epochs, gauss_ref, labels, metrics, plt, run_epochs, space):
+    _fig, _axes = plt.subplots(1, 5, figsize=(17, 3.4))
     _panels = [
         ("total_var", "Total variance", True),
         ("erank", "Effective rank", False),
+        ("n99", "Directions for 99% of variance", False),
         ("sigreg", "SIGReg (raw)", True),
         ("r2", "Mean probe R²", False),
     ]
     for _a, (_key, _title, _log) in zip(_axes, _panels):
         for _l in labels:
-            _vals = [metrics[(_l, _e)][_key] for _e in epochs]
+            _eps = run_epochs(_l)
+            _vals = [metrics[(_l, _e)][_key] for _e in _eps]
             if _key == "r2":
                 _vals = [v.mean() for v in _vals]
-            _a.plot(epochs, _vals, marker="o", ms=8, lw=2, color=COLORS[_l], label=_l)
+            _a.plot(_eps, _vals, marker="o", ms=8, lw=2, color=COLORS[_l], label=_l)
         if _key == "sigreg":
             _a.axhline(gauss_ref, color="0.4", lw=1, ls="--", label="N(0, I)")
         if _log:
@@ -714,6 +751,9 @@ def _(mo):
     Also look at `fit/pred_loss`. Without SIGReg, a prediction loss that
     goes to almost zero is a sign of the "easy" collapsed solution.
 
+    The 10-epoch img224 run was trained with W&B turned off, so this
+    section shows only runs A and B.
+
     This cell reads the two curves with the W&B API. You must be logged in
     to the W&B server of the `librakevin-workday` entity. If the cell
     cannot connect, it shows the error and the rest of the notebook still
@@ -723,13 +763,17 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, RUNS, labels, mo, plt):
+def _(COLORS, RUNS, WANDB_RUNS, labels, mo, plt):
     def _load_wandb() -> dict:
         import wandb
 
         api = wandb.Api(timeout=30)
         keys = ["trainer/global_step", "fit/sigreg_loss", "fit/pred_loss"]
-        return {_l: api.run(f"librakevin-workday/lewm/{RUNS[_l]}").history(keys=keys, samples=2000) for _l in labels}
+        return {
+            _l: api.run(f"librakevin-workday/lewm/{RUNS[_l]}").history(keys=keys, samples=2000)
+            for _l in WANDB_RUNS
+            if _l in labels
+        }
 
     try:
         _hist = _load_wandb()
@@ -738,7 +782,7 @@ def _(COLORS, RUNS, labels, mo, plt):
     else:
         _fig, _axes = plt.subplots(1, 2, figsize=(11, 3.4))
         for _a, _key in zip(_axes, ["fit/sigreg_loss", "fit/pred_loss"]):
-            for _l in labels:
+            for _l in _hist:
                 _h = _hist[_l].dropna(subset=[_key])
                 _x = _h["trainer/global_step"] if "trainer/global_step" in _h else _h["_step"]
                 _a.plot(_x, _h[_key], color=COLORS[_l], lw=1.5, label=_l)
@@ -758,36 +802,117 @@ def _(mo):
     ## 9. Summary
 
     The table puts the main numbers side by side for the selected epoch and
-    latent. The last column divides the "no SIGReg" value by the "SIGReg"
+    latent, for each run that has this epoch. If runs A and B both have the
+    epoch, the last column divides the "no SIGReg" value by the "SIGReg"
     value.
     """)
     return
 
 
 @app.cell
-def _(epoch, gauss_ref, metrics, mo, space):
-    _a, _b = metrics[("SIGReg", epoch.value)], metrics[("no SIGReg", epoch.value)]
-    _rows = [
-        ("spread (√ total variance)", _a["spread"], _b["spread"]),
-        ("|mean|", _a["mean_norm"], _b["mean_norm"]),
-        ("effective rank (max 192)", _a["erank"], _b["erank"]),
-        ("participation ratio", _a["pr"], _b["pr"]),
-        (f"SIGReg raw (N(0, I): {gauss_ref:.2f})", _a["sigreg"], _b["sigreg"]),
-        ("SIGReg standardized", _a["sigreg_z"], _b["sigreg_z"]),
-        ("mean probe R²", _a["r2"].mean(), _b["r2"].mean()),
+def _(epoch, gauss_ref, metrics, mo, runs_at, space):
+    _runs = runs_at(epoch.value)
+    _measures = [
+        ("spread (√ total variance)", lambda m: m["spread"]),
+        ("|mean|", lambda m: m["mean_norm"]),
+        ("effective rank (max 192)", lambda m: m["erank"]),
+        ("participation ratio", lambda m: m["pr"]),
+        ("directions for 99% of variance", lambda m: m["n99"]),
+        (f"SIGReg raw (N(0, I): {gauss_ref:.2f})", lambda m: m["sigreg"]),
+        ("SIGReg standardized", lambda m: m["sigreg_z"]),
+        ("mean probe R²", lambda m: m["r2"].mean()),
     ]
-    mo.vstack(
-        [
-            mo.md(f"**{space.value}, epoch {epoch.value}**"),
-            mo.ui.table(
-                [
-                    {"measure": _n, "SIGReg": f"{_va:.3g}", "no SIGReg": f"{_vb:.3g}", "no SIGReg / SIGReg": f"{_vb / _va:.2g}"}
-                    for _n, _va, _vb in _rows
-                ],
-                selection=None,
-            ),
-        ]
-    )
+    _rows = []
+    for _name, _get in _measures:
+        _row = {"measure": _name}
+        for _l in _runs:
+            _row[_l] = f"{_get(metrics[(_l, epoch.value)]):.3g}"
+        if "SIGReg" in _runs and "no SIGReg" in _runs:
+            _va, _vb = _get(metrics[("SIGReg", epoch.value)]), _get(metrics[("no SIGReg", epoch.value)])
+            _row["no SIGReg / SIGReg"] = f"{_vb / _va:.2g}"
+        _rows.append(_row)
+    mo.vstack([mo.md(f"**{space.value}, epoch {epoch.value}**"), mo.ui.table(_rows, selection=None)])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## 10. Longer training: does the effective rank keep going up?
+
+    With SIGReg, run A has no complete collapse, but its effective rank is
+    only about 69 of 192 at epoch 3 (section 3). Is this because the
+    training is short? The 10-epoch img224 run helps to answer this. The
+    table below gives its numbers for each epoch, for the selected latent.
+    The plots in section 7 show the same numbers as lines.
+
+    **What to look for:**
+
+    - **Effective rank and directions for 99% of the variance.** If they
+      keep going up, the low rank of run A is partly caused by the short
+      training.
+    - **A plateau.** If they stop going up, more epochs do not help
+      (at least with this setup).
+    - **SIGReg (raw).** If the rank goes up but the SIGReg statistic does
+      not go down, the SIGReg loss does not "see" the low rank. SIGReg
+      tests 1-D random projections on batches of 128 frames. If the
+      variance is spread over about 70–100 directions, a random 1-D
+      projection still looks close to N(0, 1), so the loss gives only a
+      weak signal against this type of anisotropy.
+
+    **Results for `emb` (what this notebook showed on 2026-10-16):** the
+    effective rank goes up from about 51 at epoch 1 to about 98 at epoch
+    10. It stops at about epoch 8. The directions for 99% of the variance
+    go from 55 to 97. The SIGReg statistic stays at about 13 from epoch 2
+    to epoch 10, so the SIGReg loss does not follow the rank. The spread
+    stays at about 13.8 (√192 ≈ 13.9), so there is no complete collapse at
+    any epoch. The `cls` latent has a lower rank (about 36 at epoch 10).
+
+    **Be careful with these comparisons:**
+
+    - **Learning-rate schedule.** The scheduler is a linear warmup and a
+      cosine decay over **all** training steps, to 0 at the end
+      (`LinearWarmupCosineAnnealingLR`, stepped once per step). So in run A,
+      the learning rate is almost 0 at the end of epoch 3. In the 10-epoch
+      run, it is still about 80% of the peak at the end of epoch 3. This
+      is one reason why run A stops at about 69. It also means that the
+      plateau at epochs 8–10 can come from the learning rate that goes to
+      0, and not from a real limit.
+    - **Image size.** The 10-epoch run uses 224-pixel images, and run A
+      uses 112. The image size and the training length change together.
+    - **One seed.** Each run is one training run.
+    """)
+    return
+
+
+@app.cell
+def _(COLORS, gauss_ref, metrics, mo, run_epochs):
+    _l = "SIGReg 10 ep (img224)"
+    if (_l, 1) not in metrics:
+        _out = mo.callout(mo.md("No embeddings for the 10-epoch run. Run the second command in the introduction."), kind="warn")
+    else:
+        _out = mo.vstack(
+            [
+                mo.md(f"<span style='color:{COLORS[_l]}'>■</span> **{_l}**, N(0, I) SIGReg reference {gauss_ref:.2f}"),
+                mo.ui.table(
+                    [
+                        {
+                            "epoch": _e,
+                            "spread": f"{metrics[(_l, _e)]['spread']:.3g}",
+                            "effective rank": f"{metrics[(_l, _e)]['erank']:.1f}",
+                            "participation ratio": f"{metrics[(_l, _e)]['pr']:.1f}",
+                            "directions for 99%": metrics[(_l, _e)]["n99"],
+                            "SIGReg (raw)": f"{metrics[(_l, _e)]['sigreg']:.3g}",
+                            "mean probe R²": f"{metrics[(_l, _e)]['r2'].mean():.3f}",
+                        }
+                        for _e in run_epochs(_l)
+                    ],
+                    selection=None,
+                    pagination=False,
+                ),
+            ]
+        )
+    _out
     return
 
 
