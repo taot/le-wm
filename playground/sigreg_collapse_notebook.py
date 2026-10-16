@@ -34,9 +34,9 @@ def _(mo):
     RUNS = {
         "SIGReg": "2026-09-28_114752_img112_s3072",
         "no SIGReg": "2026-10-14_115337_img112_s3072_nosigreg",
-        "SIGReg 10 ep (img224)": "2026-10-10_120411_img224_s3072",
+        "SIGReg 10 epochs (img224)": "2026-10-10_120411_img224_s3072",
     }
-    COLORS = {"SIGReg": "#2a78d6", "no SIGReg": "#eb6834", "SIGReg 10 ep (img224)": "#1baf7a"}
+    COLORS = {"SIGReg": "#2a78d6", "no SIGReg": "#eb6834", "SIGReg 10 epochs (img224)": "#1baf7a"}
     # Runs that logged to W&B (the 10-epoch run had wandb.enabled=false).
     WANDB_RUNS = ["SIGReg", "no SIGReg"]
 
@@ -57,7 +57,7 @@ def _(mo):
     |---|---|---|---|---|
     | **SIGReg** (run A, baseline) | 0.09 | 112 | 3 | `pusht/2026-09-28_114752_img112_s3072` |
     | **no SIGReg** (run B) | 0 | 112 | 3 | `pusht/2026-10-14_115337_img112_s3072_nosigreg` |
-    | **SIGReg 10 ep (img224)** | 0.09 | 224 | 10 | `pusht/2026-10-10_120411_img224_s3072` |
+    | **SIGReg 10 epochs (img224)** | 0.09 | 224 | 10 | `pusht/2026-10-10_120411_img224_s3072` |
 
     The third run is an older run with SIGReg and longer training. We use
     it to see what happens to the latents after epoch 3 (section 10). It
@@ -111,9 +111,9 @@ def _(EMB_DIR, RUNS, mo, np):
     labels = [_l for _l in RUNS if any(_k[0] == _l for _k in data)]
     epochs = sorted({e for _, e in data})
 
-    def runs_at(ep: int) -> list[str]:
+    def runs_at(epoch: int) -> list[str]:
         """Runs that have a checkpoint at this epoch."""
-        return [_l for _l in labels if (_l, ep) in data]
+        return [_l for _l in labels if (_l, epoch) in data]
 
     def run_epochs(label: str) -> list[int]:
         """Epochs of one run."""
@@ -123,13 +123,13 @@ def _(EMB_DIR, RUNS, mo, np):
         [
             {
                 "run": _l,
-                "epoch": _e,
-                "sigreg weight": float(data[(_l, _e)]["sigreg_weight"]),
-                "random frames": int((data[(_l, _e)]["group"] == 0).sum()),
-                "episode frames": int((data[(_l, _e)]["group"] == 1).sum()),
-                "checkpoint": str(data[(_l, _e)]["checkpoint"]),
+                "epoch": _epoch,
+                "sigreg weight": float(data[(_l, _epoch)]["sigreg_weight"]),
+                "random frames": int((data[(_l, _epoch)]["group"] == 0).sum()),
+                "episode frames": int((data[(_l, _epoch)]["group"] == 1).sum()),
+                "checkpoint": str(data[(_l, _epoch)]["checkpoint"]),
             }
-            for (_l, _e) in data
+            for (_l, _epoch) in data
         ],
         selection=None,
     )
@@ -181,16 +181,16 @@ def _(epochs, mo):
         label="Latent",
     )
     # Default: the last epoch that all runs have (3), so the first plots compare all runs.
-    epoch = mo.ui.dropdown({str(e): e for e in epochs}, value=str(min(3, epochs[-1])), label="Epoch")
-    mo.hstack([space, epoch], justify="start", gap=2)
-    return epoch, space
+    epoch_select = mo.ui.dropdown({str(e): e for e in epochs}, value=str(min(3, epochs[-1])), label="Epoch")
+    mo.hstack([space, epoch_select], justify="start", gap=2)
+    return epoch_select, space
 
 
 @app.cell
 def _(SIGReg, data, np, space, torch):
-    def latents(label: str, ep: int, group: int = 0) -> np.ndarray:
+    def latents(label: str, epoch: int, group: int = 0) -> np.ndarray:
         """Latents of one checkpoint, as float64 (frames, 192)."""
-        d = data[(label, ep)]
+        d = data[(label, epoch)]
         return d[space.value][d["group"] == group].astype(np.float64)
 
     def eigenvalues(x: np.ndarray) -> np.ndarray:
@@ -226,15 +226,15 @@ def _(data, eigenvalues, labels, latents, np, sigreg_statistic):
     def probe_targets(state: np.ndarray) -> np.ndarray:
         return np.column_stack([state[:, 0], state[:, 1], state[:, 2], state[:, 3], np.cos(state[:, 4]), np.sin(state[:, 4])])
 
-    def linear_probe(label: str, ep: int) -> np.ndarray:
+    def linear_probe(label: str, epoch: int) -> np.ndarray:
         """Test R² of a ridge regression from the standardized latent to each target.
 
         Train and test frames come from different episodes, so the probe cannot
         remember frames that it saw.
         """
-        d = data[(label, ep)]
+        d = data[(label, epoch)]
         g0 = d["group"] == 0
-        x, y, groups = latents(label, ep), probe_targets(d["state"][g0]), d["episode"][g0]
+        x, y, groups = latents(label, epoch), probe_targets(d["state"][g0]), d["episode"][g0]
         train, test = next(GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=0).split(x, y, groups))
         probe = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(-3, 3, 13)))
         probe.fit(x[train], y[train])
@@ -245,14 +245,14 @@ def _(data, eigenvalues, labels, latents, np, sigreg_statistic):
 
     # All metrics for every run and epoch, for the selected latent.
     metrics = {}
-    for (_label, _ep) in data:
-        _x = latents(_label, _ep)
+    for (_label, _epoch) in data:
+        _x = latents(_label, _epoch)
         _ev = eigenvalues(_x)
         _p = _ev / _ev.sum()
         _p = _p[_p > 0]
         _std = _x.std(0)
         _cum = np.cumsum(_ev) / _ev.sum()
-        metrics[(_label, _ep)] = {
+        metrics[(_label, _epoch)] = {
             "mean_norm": np.linalg.norm(_x.mean(0)),
             "total_var": _ev.sum(),
             "spread": np.sqrt(_ev.sum()),
@@ -264,7 +264,7 @@ def _(data, eigenvalues, labels, latents, np, sigreg_statistic):
             "n99": int(np.searchsorted(_cum, 0.99) + 1),
             "sigreg":sigreg_statistic(_x),
             "sigreg_z": sigreg_statistic((_x - _x.mean(0)) / _std),
-            "r2": linear_probe(_label, _ep),
+            "r2": linear_probe(_label, _epoch),
         }
     gauss_ref = sigreg_statistic(np.random.default_rng(0).standard_normal((20000, 192)))
     assert set(labels) == {_l for _l, _ in metrics}
@@ -301,14 +301,14 @@ def _(metrics, mo):
         [
             {
                 "run": _l,
-                "epoch": _e,
+                "epoch": _epoch,
                 "|mean|": f"{_m['mean_norm']:.3g}",
                 "spread": f"{_m['spread']:.3g}",
                 "spread / |mean|": f"{_m['spread'] / _m['mean_norm']:.3g}",
                 "smallest dim std": f"{_m['dim_std'].min():.2e}",
                 "largest dim std": f"{_m['dim_std'].max():.2e}",
             }
-            for (_l, _e), _m in metrics.items()
+            for (_l, _epoch), _m in metrics.items()
         ],
         selection=None,
     )
@@ -331,15 +331,15 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, metrics, plt, runs_at, space):
+def _(COLORS, epoch_select, metrics, plt, runs_at, space):
     _fig, _ax = plt.subplots(figsize=(7, 3.6))
-    for _l in runs_at(epoch.value):
-        _ax.plot(sorted(metrics[(_l, epoch.value)]["dim_std"], reverse=True), color=COLORS[_l], lw=2, label=_l)
+    for _l in runs_at(epoch_select.value):
+        _ax.plot(sorted(metrics[(_l, epoch_select.value)]["dim_std"], reverse=True), color=COLORS[_l], lw=2, label=_l)
     _ax.axhline(1, color="0.4", lw=1, ls="--", label="N(0, I): std = 1")
     _ax.set_yscale("log")
     _ax.set_xlabel("dimension (sorted by std)")
     _ax.set_ylabel("std of the dimension")
-    _ax.set_title(f"Std of each dimension, {space.value}, epoch {epoch.value}")
+    _ax.set_title(f"Std of each dimension, {space.value}, epoch {epoch_select.value}")
     _ax.legend()
     _fig.tight_layout()
     _fig
@@ -369,12 +369,12 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, latents, np, plt, runs_at, space):
+def _(COLORS, epoch_select, latents, np, plt, runs_at, space):
     _rng = np.random.default_rng(0)
     _fig, _ax = plt.subplots(figsize=(7, 3.6))
     _all = []
-    for _l in runs_at(epoch.value):
-        _x = latents(_l, epoch.value)
+    for _l in runs_at(epoch_select.value):
+        _x = latents(_l, epoch_select.value)
         _i, _j = _rng.integers(0, len(_x), (2, 5000))
         _keep = _i != _j
         _xn = _x / np.linalg.norm(_x, axis=1, keepdims=True)
@@ -386,7 +386,7 @@ def _(COLORS, epoch, latents, np, plt, runs_at, space):
     _ax.set_xscale("log")
     _ax.set_xlabel("1 − cosine similarity of two random frames")
     _ax.set_ylabel("number of pairs")
-    _ax.set_title(f"Direction of the latents, {space.value}, epoch {epoch.value}")
+    _ax.set_title(f"Direction of the latents, {space.value}, epoch {epoch_select.value}")
     _ax.legend()
     _fig.tight_layout()
     _fig
@@ -428,10 +428,10 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, metrics, mo, plt, runs_at, space):
+def _(COLORS, epoch_select, metrics, mo, plt, runs_at, space):
     _fig, (_a1, _a2) = plt.subplots(1, 2, figsize=(10, 3.8))
-    for _l in runs_at(epoch.value):
-        _ev = metrics[(_l, epoch.value)]["eigenvalues"]
+    for _l in runs_at(epoch_select.value):
+        _ev = metrics[(_l, epoch_select.value)]["eigenvalues"]
         _a1.plot(_ev, color=COLORS[_l], lw=2, label=_l)
         _a2.plot(_ev / _ev.sum(), color=COLORS[_l], lw=2, label=_l)
     _a1.axhline(1, color="0.4", lw=1, ls="--", label="N(0, I)")
@@ -439,7 +439,7 @@ def _(COLORS, epoch, metrics, mo, plt, runs_at, space):
     for _a, _t in [(_a1, "Raw eigenvalues"), (_a2, "Eigenvalues / sum")]:
         _a.set_yscale("log")
         _a.set_xlabel("principal component (sorted)")
-        _a.set_title(f"{_t}, {space.value}, epoch {epoch.value}")
+        _a.set_title(f"{_t}, {space.value}, epoch {epoch_select.value}")
         _a.legend()
     _a1.set_ylabel("variance along the component")
     _a2.set_ylabel("fraction of total variance")
@@ -451,14 +451,14 @@ def _(COLORS, epoch, metrics, mo, plt, runs_at, space):
                 [
                     {
                         "run": _l,
-                        "epoch": _e,
+                        "epoch": _epoch,
                         "effective rank": f"{_m['erank']:.1f}",
                         "participation ratio": f"{_m['pr']:.1f}",
                         "top component share": f"{_m['eigenvalues'][0] / _m['total_var']:.1%}",
                         "components for 90% of variance": _m["n90"],
                         "components for 99% of variance": _m["n99"],
                     }
-                    for (_l, _e), _m in metrics.items()
+                    for (_l, _epoch), _m in metrics.items()
                 ],
                 selection=None,
             ),
@@ -502,12 +502,12 @@ def _(gauss_ref, metrics, mo):
         [
             {
                 "run": _l,
-                "epoch": _e,
+                "epoch": _epoch,
                 "SIGReg (raw)": f"{_m['sigreg']:.3g}",
                 "SIGReg (standardized)": f"{_m['sigreg_z']:.3g}",
                 "N(0, I) reference": f"{gauss_ref:.3g}",
             }
-            for (_l, _e), _m in metrics.items()
+            for (_l, _epoch), _m in metrics.items()
         ],
         selection=None,
     )
@@ -533,15 +533,15 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, epoch, latents, np, plt, runs_at, space):
+def _(COLORS, epoch_select, latents, np, plt, runs_at, space):
     _rng = np.random.default_rng(1)
     _dirs = _rng.standard_normal((192, 4))
     _dirs /= np.linalg.norm(_dirs, axis=0)
     _grid = np.linspace(-4, 4, 200)
-    _runs = runs_at(epoch.value)
+    _runs = runs_at(epoch_select.value)
     _fig, _axes = plt.subplots(len(_runs), 4, figsize=(11, 2.6 * len(_runs)), sharex=True, squeeze=False)
     for _r, _l in enumerate(_runs):
-        _proj = latents(_l, epoch.value) @ _dirs
+        _proj = latents(_l, epoch_select.value) @ _dirs
         for _c in range(4):
             _a = _axes[_r, _c]
             _a.hist(
@@ -558,7 +558,7 @@ def _(COLORS, epoch, latents, np, plt, runs_at, space):
                 _a.set_ylabel(f"{_l}\ndensity")
             if _r == 0:
                 _a.set_title(f"direction {_c + 1}")
-    _fig.suptitle(f"Latents projected on random directions, {space.value}, epoch {epoch.value}")
+    _fig.suptitle(f"Latents projected on random directions, {space.value}, epoch {epoch_select.value}")
     _fig.tight_layout()
     _fig
     return
@@ -603,20 +603,20 @@ def _(mo):
 
 
 @app.cell
-def _(COLORS, PROBE_TARGETS, epoch, metrics, np, plt, runs_at, space):
-    _runs = runs_at(epoch.value)
+def _(COLORS, PROBE_TARGETS, epoch_select, metrics, np, plt, runs_at, space):
+    _runs = runs_at(epoch_select.value)
     _fig, _ax = plt.subplots(figsize=(10, 4))
     _w = 0.8 / len(_runs)
     _xs = np.arange(len(PROBE_TARGETS))
     for _k, _l in enumerate(_runs):
-        _r2 = metrics[(_l, epoch.value)]["r2"]
+        _r2 = metrics[(_l, epoch_select.value)]["r2"]
         _bars = _ax.bar(_xs + (_k - (len(_runs) - 1) / 2) * _w, _r2, width=_w - 0.02, color=COLORS[_l], label=_l)
         _ax.bar_label(_bars, fmt="%.2f", fontsize=7, padding=2)
     _ax.set_xticks(_xs, PROBE_TARGETS)
-    _ax.set_ylim(min(0, min(metrics[(_l, epoch.value)]["r2"].min() for _l in _runs)) - 0.05, 1.1)
+    _ax.set_ylim(min(0, min(metrics[(_l, epoch_select.value)]["r2"].min() for _l in _runs)) - 0.05, 1.1)
     _ax.axhline(0, color="0.3", lw=1)
     _ax.set_ylabel("test R²")
-    _ax.set_title(f"Linear probe from the standardized latent, {space.value}, epoch {epoch.value}")
+    _ax.set_title(f"Linear probe from the standardized latent, {space.value}, epoch {epoch_select.value}")
     _ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=len(_runs), frameon=False)
     _fig.tight_layout()
     _fig
@@ -647,31 +647,31 @@ def _(mo):
 
 
 @app.cell
-def _(data, epoch, latents, np, plt, runs_at, space):
-    _runs = runs_at(epoch.value)
+def _(data, epoch_select, latents, np, plt, runs_at, space):
+    _runs = runs_at(epoch_select.value)
     _fig, _axes = plt.subplots(2, len(_runs), figsize=(5.2 * len(_runs), 8.4), squeeze=False)
     for _k, _l in enumerate(_runs):
-        _x = latents(_l, epoch.value)
+        _x = latents(_l, epoch_select.value)
         _mu = _x.mean(0)
         _, _s, _vt = np.linalg.svd(_x - _mu, full_matrices=False)
         _share = _s**2 / (_s**2).sum()
         _pc = (_x - _mu) @ _vt[:2].T
-        _d = data[(_l, epoch.value)]
+        _d = data[(_l, epoch_select.value)]
         _state = _d["state"][_d["group"] == 0]
-        _ep_x = latents(_l, epoch.value, group=1)
-        _ep_id = _d["episode"][_d["group"] == 1]
+        _episode_x = latents(_l, epoch_select.value, group=1)
+        _episode_id = _d["episode"][_d["group"] == 1]
         for _r, (_c, _cmap, _name) in enumerate([(_state[:, 4] % (2 * np.pi), "twilight", "block angle (rad)"), (_state[:, 0], "viridis", "agent x")]):
             _a = _axes[_r, _k]
             _sc = _a.scatter(_pc[:, 0], _pc[:, 1], c=_c, cmap=_cmap, s=3, alpha=0.6, linewidths=0)
-            for _e in np.unique(_ep_id)[:3]:
-                _t = (_ep_x[_ep_id == _e] - _mu) @ _vt[:2].T
+            for _episode in np.unique(_episode_id)[:3]:
+                _t = (_episode_x[_episode_id == _episode] - _mu) @ _vt[:2].T
                 _a.plot(_t[:, 0], _t[:, 1], color="black", lw=0.8, alpha=0.8)
             _a.set_xlabel(f"PC1 ({_share[0]:.0%} of variance)")
             _a.set_ylabel(f"PC2 ({_share[1]:.0%} of variance)")
             _a.set_title(f"{_l}")
             _a.ticklabel_format(style="sci", scilimits=(-3, 3))
             _fig.colorbar(_sc, ax=_a, label=_name)
-    _fig.suptitle(f"PCA of the latents, {space.value}, epoch {epoch.value}")
+    _fig.suptitle(f"PCA of the latents, {space.value}, epoch {epoch_select.value}")
     _fig.tight_layout()
     _fig
     return
@@ -714,7 +714,7 @@ def _(COLORS, epochs, gauss_ref, labels, metrics, plt, run_epochs, space):
     for _a, (_key, _title, _log) in zip(_axes, _panels):
         for _l in labels:
             _eps = run_epochs(_l)
-            _vals = [metrics[(_l, _e)][_key] for _e in _eps]
+            _vals = [metrics[(_l, _epoch)][_key] for _epoch in _eps]
             if _key == "r2":
                 _vals = [v.mean() for v in _vals]
             _a.plot(_eps, _vals, marker="o", ms=8, lw=2, color=COLORS[_l], label=_l)
@@ -810,8 +810,8 @@ def _(mo):
 
 
 @app.cell
-def _(epoch, gauss_ref, metrics, mo, runs_at, space):
-    _runs = runs_at(epoch.value)
+def _(epoch_select, gauss_ref, metrics, mo, runs_at, space):
+    _runs = runs_at(epoch_select.value)
     _measures = [
         ("spread (√ total variance)", lambda m: m["spread"]),
         ("|mean|", lambda m: m["mean_norm"]),
@@ -826,12 +826,12 @@ def _(epoch, gauss_ref, metrics, mo, runs_at, space):
     for _name, _get in _measures:
         _row = {"measure": _name}
         for _l in _runs:
-            _row[_l] = f"{_get(metrics[(_l, epoch.value)]):.3g}"
+            _row[_l] = f"{_get(metrics[(_l, epoch_select.value)]):.3g}"
         if "SIGReg" in _runs and "no SIGReg" in _runs:
-            _va, _vb = _get(metrics[("SIGReg", epoch.value)]), _get(metrics[("no SIGReg", epoch.value)])
+            _va, _vb = _get(metrics[("SIGReg", epoch_select.value)]), _get(metrics[("no SIGReg", epoch_select.value)])
             _row["no SIGReg / SIGReg"] = f"{_vb / _va:.2g}"
         _rows.append(_row)
-    mo.vstack([mo.md(f"**{space.value}, epoch {epoch.value}**"), mo.ui.table(_rows, selection=None)])
+    mo.vstack([mo.md(f"**{space.value}, epoch {epoch_select.value}**"), mo.ui.table(_rows, selection=None)])
     return
 
 
@@ -887,7 +887,7 @@ def _(mo):
 
 @app.cell
 def _(COLORS, gauss_ref, metrics, mo, run_epochs):
-    _l = "SIGReg 10 ep (img224)"
+    _l = "SIGReg 10 epochs (img224)"
     if (_l, 1) not in metrics:
         _out = mo.callout(mo.md("No embeddings for the 10-epoch run. Run the second command in the introduction."), kind="warn")
     else:
@@ -897,15 +897,15 @@ def _(COLORS, gauss_ref, metrics, mo, run_epochs):
                 mo.ui.table(
                     [
                         {
-                            "epoch": _e,
-                            "spread": f"{metrics[(_l, _e)]['spread']:.3g}",
-                            "effective rank": f"{metrics[(_l, _e)]['erank']:.1f}",
-                            "participation ratio": f"{metrics[(_l, _e)]['pr']:.1f}",
-                            "directions for 99%": metrics[(_l, _e)]["n99"],
-                            "SIGReg (raw)": f"{metrics[(_l, _e)]['sigreg']:.3g}",
-                            "mean probe R²": f"{metrics[(_l, _e)]['r2'].mean():.3f}",
+                            "epoch": _epoch,
+                            "spread": f"{metrics[(_l, _epoch)]['spread']:.3g}",
+                            "effective rank": f"{metrics[(_l, _epoch)]['erank']:.1f}",
+                            "participation ratio": f"{metrics[(_l, _epoch)]['pr']:.1f}",
+                            "directions for 99%": metrics[(_l, _epoch)]["n99"],
+                            "SIGReg (raw)": f"{metrics[(_l, _epoch)]['sigreg']:.3g}",
+                            "mean probe R²": f"{metrics[(_l, _epoch)]['r2'].mean():.3f}",
                         }
-                        for _e in run_epochs(_l)
+                        for _epoch in run_epochs(_l)
                     ],
                     selection=None,
                     pagination=False,
