@@ -489,6 +489,67 @@ def _(COLORS, epoch_select, metrics, mo, plt, runs_at, space):
 
 
 @app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### How to read the spectrum of the SIGReg runs
+
+    **Most directions hold almost no variance.** In the right plot, after
+    about principal component 75, each direction has only 10⁻³ to 10⁻⁵ of
+    the total variance. The N(0, I) line is 1/192 ≈ 5 × 10⁻³, so these
+    directions are 5 to 500 times smaller than an equal share. Together
+    they hold very little: the table below gives the numbers for the
+    selected epoch.
+
+    **There is a "cliff", not a slow decrease.** The SIGReg run (run A)
+    drops near component 60, and the img224 run drops near component 75
+    (at epoch 3). At the cliff, the values fall by about 100 times. So the
+    model uses only about 60–75 directions, and the other directions are
+    almost unused. This is a dimensional collapse. It is clear, but it is
+    not complete, because the small directions are not 0.
+
+    **The used directions are larger than in N(0, I).** In the left plot,
+    the first 60–75 eigenvalues are about 2–4, above the N(0, I) line at 1.
+    SIGReg keeps the std of each coordinate near 1, so the total variance
+    stays near 192. But this total is shared by only about 65 directions,
+    so each one gets about 192 / 65 ≈ 3. So the cloud is not a small ball.
+    It is a flat "pancake": wide in about 65 directions and very thin in
+    the others.
+
+    **With longer training, the cliff moves to the right.** The img224 run
+    already has its cliff near 75 at epoch 3, and at epoch 10 it needs 97
+    directions for 99% of the variance (select epoch 10 above). But even
+    then, about half of the 192 directions are almost unused.
+
+    **The orange line (no SIGReg) in the right plot has no meaning.** It
+    looks "normal": it decreases slowly from about 0.15, with no cliff. But
+    the left plot shows that its eigenvalues are only 10⁻¹¹ to 10⁻¹⁶, so
+    the cloud is almost one point. The right plot removes the size, so the
+    shape of this tiny cloud tells you nothing. Always read the left plot
+    first.
+    """)
+    return
+
+
+@app.cell
+def _(epoch_select, metrics, mo, runs_at):
+    _rows = []
+    for _l in runs_at(epoch_select.value):
+        _ev = metrics[(_l, epoch_select.value)]["eigenvalues"]
+        _p = _ev / _ev.sum()
+        _rows.append(
+            {
+                "run": _l,
+                "share of components 1–60": f"{_p[:60].sum():.1%}",
+                "share of components 76–192": f"{_p[75:].sum():.2%}",
+                "mean eigenvalue, components 1–60": f"{_ev[:60].mean():.3g}",
+                "mean eigenvalue, components 76–192": f"{_ev[75:].mean():.3g}",
+            }
+        )
+    mo.vstack([mo.md(f"**Used and unused directions, epoch {epoch_select.value}**"), mo.ui.table(_rows, selection=None)])
+    return
+
+
+@app.cell(hide_code=True)
 def _(gauss_ref, mo):
     mo.md(rf"""
     ## 4. Is the distribution close to N(0, I)?
