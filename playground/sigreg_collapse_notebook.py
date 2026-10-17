@@ -427,6 +427,22 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Effective rank:
+
+    $$
+    \begin{aligned}
+    p_i &= \frac{\lambda_i}{\sum_{j=1}^{d} \lambda_j}, \qquad i = 1, \dots, d \\[6pt]
+    H(p) &= -\sum_{i=1}^{d} p_i \log p_i \\[6pt]
+    \operatorname{erank}(\Sigma) &= \exp\big(H(p)\big)
+    \end{aligned}
+    $$
+    """)
+    return
+
+
 @app.cell
 def _(COLORS, epoch_select, metrics, mo, plt, runs_at, space):
     _fig, (_a1, _a2) = plt.subplots(1, 2, figsize=(10, 3.8))
