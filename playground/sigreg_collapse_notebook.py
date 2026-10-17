@@ -37,8 +37,6 @@ def _(mo):
         "SIGReg 10 epochs (img224)": "2026-10-10_120411_img224_s3072",
     }
     COLORS = {"SIGReg": "#2a78d6", "no SIGReg": "#eb6834", "SIGReg 10 epochs (img224)": "#1baf7a"}
-    # Runs that logged to W&B (the 10-epoch run had wandb.enabled=false).
-    WANDB_RUNS = ["SIGReg", "no SIGReg"]
 
     plt.rcParams.update({"figure.dpi": 110, "axes.grid": True, "grid.alpha": 0.3})
     return COLORS, EMB_DIR, RUNS, SIGReg, np, plt, torch
@@ -887,8 +885,7 @@ def _(mo):
     - **Mean probe R²**: the mean over the 6 targets (section 5).
 
     A checkpoint is saved only at the end of each epoch. So these plots
-    cannot show when the collapse started inside epoch 1. Section 8 uses
-    the W&B log, which has a value for each training step.
+    cannot show when the collapse started inside epoch 1.
     """)
     return
 
