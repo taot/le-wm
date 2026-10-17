@@ -198,10 +198,15 @@ def _(SIGReg, data, np, space, torch):
         return np.linalg.eigvalsh(np.cov(x, rowvar=False))[::-1].clip(min=0)
 
     def sigreg_statistic(x: np.ndarray, batch: int = 128, seed: int = 0) -> float:
-        """SIGReg loss as in training: batches of 128 frames, averaged over batches.
+        """SIGReg loss as in training: random batches of 128 frames, averaged over batches.
 
-        The same random directions are used for every batch and every model (fixed seed).
+        The frames are shuffled first, because training uses random batches. The
+        frames in the files are sorted by dataset row, and nearby episodes look
+        alike, so batches of neighboring rows would give a much too high value.
+        The shuffle and the random directions use a fixed seed, so every model
+        gets the same batches and directions.
         """
+        x = x[np.random.default_rng(seed).permutation(len(x))]
         n = len(x) // batch * batch
         proj = torch.from_numpy(x[:n]).float().reshape(-1, batch, x.shape[1])  # (batches, B, D)
         sigreg = SIGReg()
@@ -495,9 +500,32 @@ def _(gauss_ref, mo):
 
     ### 4.1 The SIGReg statistic
 
-    We calculate the SIGReg loss exactly as in training: batches of 128
+    We calculate the SIGReg loss as in training: random batches of 128
     frames, 1024 random directions, averaged over the batches. All models
-    use the same random directions (fixed seed). We give two values:
+    use the same batches and the same random directions (fixed seed).
+
+    **The batches must be random.** The frames in the files are sorted by
+    dataset row, and nearby episodes look alike. A batch of neighboring
+    rows covers only a small part of the scenes, so it looks much less
+    like N(0, I) than a random batch. (An earlier version of this notebook
+    did not shuffle. It gave about 14 for run A at epoch 3, compared with
+    about 1.5 with random batches.)
+
+    **How the value depends on the batch size B.** The value is about
+
+    > SIGReg ≈ c + B × D
+
+    - **c ≈ 1** is the noise floor. Even real N(0, I) samples give it,
+      because a finite batch is never exactly Gaussian. It does not depend
+      on B.
+    - **D** is the real distance between the latent distribution and
+      N(0, I). It does not depend on B either.
+
+    So only the part above the floor tells you how far the latents are
+    from N(0, I). A larger batch makes this part (and its gradient) larger,
+    while the prediction loss does not change.
+
+    We give two values:
 
     - **SIGReg (raw)**: on the latents as they are. This is the value that
       the training loss sees. Compare it with `fit/sigreg_loss` in W&B.
@@ -869,20 +897,30 @@ def _(mo):
       training.
     - **A plateau.** If they stop going up, more epochs do not help
       (at least with this setup).
-    - **SIGReg (raw).** If the rank goes up but the SIGReg statistic does
-      not go down, the SIGReg loss does not "see" the low rank. SIGReg
-      tests 1-D random projections on batches of 128 frames. If the
-      variance is spread over about 70–100 directions, a random 1-D
-      projection still looks close to N(0, 1), so the loss gives only a
-      weak signal against this type of anisotropy.
+    - **SIGReg (raw).** If it goes down while the rank goes up, the SIGReg
+      loss "sees" the low rank and pushes against it. Compare it with the
+      N(0, I) reference (about 1.05): only the part above the reference is
+      a real distance from N(0, I) (section 4.1).
 
     **Results for `emb` (what this notebook showed on 2026-10-16):** the
     effective rank goes up from about 51 at epoch 1 to about 98 at epoch
     10. It stops at about epoch 8. The directions for 99% of the variance
-    go from 55 to 97. The SIGReg statistic stays at about 13 from epoch 2
-    to epoch 10, so the SIGReg loss does not follow the rank. The spread
+    go from 55 to 97. The SIGReg statistic goes down at the same time, from
+    about 2.3 to about 1.33, so the SIGReg loss follows the rank. At epoch
+    10, the part above the N(0, I) reference is only about 0.3. The spread
     stays at about 13.8 (√192 ≈ 13.9), so there is no complete collapse at
     any epoch. The `cls` latent has a lower rank (about 36 at epoch 10).
+
+    **Why the rank does not go higher.** A separate test on run A at epoch
+    3 (not in this notebook) whitened the latents: it made all eigenvalues
+    equal to 1 and kept the rest of the shape. This removed about 90% of
+    the distance above the floor. So most of what is left of the SIGReg
+    loss is this anisotropy. But with B = 128, it adds only about 0.45 to
+    the loss, which is less than the noise floor of about 1.05. So the
+    signal against the remaining anisotropy is weak. A larger batch (or a
+    larger SIGReg weight) makes this signal stronger. The scene also has
+    only about 5 degrees of freedom (agent x and y, block x and y, block
+    angle), which can limit how many directions the encoder can fill.
 
     **Be careful with these comparisons:**
 
