@@ -41,7 +41,7 @@ def _(mo):
     WANDB_RUNS = ["SIGReg", "no SIGReg"]
 
     plt.rcParams.update({"figure.dpi": 110, "axes.grid": True, "grid.alpha": 0.3})
-    return COLORS, EMB_DIR, RUNS, SIGReg, WANDB_RUNS, np, plt, torch
+    return COLORS, EMB_DIR, RUNS, SIGReg, np, plt, torch
 
 
 @app.cell(hide_code=True)
@@ -638,6 +638,12 @@ def _(mo):
 
 
 @app.cell
+def _(epoch_select):
+    epoch_select
+    return
+
+
+@app.cell
 def _(COLORS, epoch_select, latents, np, plt, runs_at, space):
     _rng = np.random.default_rng(1)
     _dirs = _rng.standard_normal((192, 4))
@@ -733,20 +739,62 @@ def _(mo):
     mo.md(r"""
     ## 6. PCA picture of the latents
 
-    PCA finds the two directions with the largest variance. We project
-    every latent onto these two directions and draw it as a point. We fit
-    one PCA for each run, so each plot has its own axes.
+    PCA finds the two directions with the largest variance. We use two
+    because a scatter plot has two axes. The latents have nothing special
+    about the number 2: the SIGReg runs use 60–100 directions (section 3).
 
-    - **Top row:** the color shows the block angle. The color map is cyclic,
-      because 0 and 2π are the same angle.
-    - **Bottom row:** the color shows the x position of the agent.
-    - **Black lines:** 3 full episodes, frame by frame.
+    **How the plot is made.**
 
-    **How to read it.** Smooth color changes mean that the two main
-    directions follow the state of the scene. **Always read the numbers on
-    the axes.** PCA can make a very small cloud look as big as a large one.
-    The axis labels give the share of the total variance of each
-    direction.
+    - **Points:** the 20,000 random frames (group 0). We fit the PCA on
+      their latents only, and draw each frame at its PC1 and PC2
+      coordinates. We fit one PCA for each run, so each plot has its own
+      axes. The frames are drawn in random order, so that no episode
+      covers the others.
+    - **Color:** the true state of the frame, from the dataset. The model
+      never sees it. Top row: the block angle, with the cyclic `hsv` color
+      map (red is both 0 and 2π). Bottom row: the agent x position, with
+      the `turbo` color map (dark blue is small x, red is large x). The
+      color scale covers the 2nd to 98th percentile, so the few frames
+      outside it get the end colors.
+    - **Black lines:** 3 full episodes (group 1). The frames of an episode
+      are stored in time order, and the line connects them: step 0, step
+      1, step 2, and so on. We project them with the same PCA (the mean
+      and directions of group 0), so the lines and the points use the same
+      axes.
+
+    **How to read it.** Read the plot in this order:
+
+    1. **The axes.** The numbers on the axes give the real size of the
+       cloud. PCA can make a very small cloud look as big as a large one.
+       The axis labels give the share of the total variance of each
+       direction, so you know how much of the cloud the plot shows.
+    2. **The colors.** The PCA does not know the state. So if the colors
+       have a pattern, the model itself learned a direction that is
+       related to this state.
+       - The same color in one area, or a smooth change of color: the two
+         directions encode this state.
+       - Mixed colors: these two directions do not show this state. But
+         the information can be in other directions.
+       - A PC is usually a mix of several states, so expect a rough
+         pattern, not a clean rainbow. The angle is cyclic, so it cannot
+         be one straight axis. It can show as a ring or as separate areas.
+       - In the dense center, the points cover each other, so the colors
+         there are only approximate.
+    3. **The black lines.** Each corner of a line is one frame, and two
+       neighboring corners are two frames that follow each other in time.
+       Two such frames are almost the same image, so a good latent puts
+       them close together.
+       - A smooth line with small steps: the latent changes smoothly in
+         time.
+       - Long, straight jumps in a tangle: frames that follow each other
+         land far apart. At this scale, the positions behave more like
+         noise.
+       - The lines have no color and show no start or end. To find the
+         state along a line, look at the colors of the points near it.
+
+    This plot shows only 2 directions, and it is qualitative. To test if
+    the state is in the latent, use the linear probe (section 5). It uses
+    all 192 dimensions.
     """)
     return
 
@@ -765,9 +813,19 @@ def _(data, epoch_select, latents, np, plt, runs_at, space):
         _state = _d["state"][_d["group"] == 0]
         _episode_x = latents(_l, epoch_select.value, group=1)
         _episode_id = _d["episode"][_d["group"] == 1]
-        for _r, (_c, _cmap, _name) in enumerate([(_state[:, 4] % (2 * np.pi), "twilight", "block angle (rad)"), (_state[:, 0], "viridis", "agent x")]):
+        # Random draw order: the frames are sorted by dataset row, so the last episodes would cover the others.
+        _order = np.random.default_rng(0).permutation(len(_x))
+        _colorings = [
+            (_state[:, 4] % (2 * np.pi), "hsv", "block angle (rad)", (0, 2 * np.pi)),
+            # Clip the color range to the 2nd-98th percentile, so a few outliers do not compress the colors.
+            (_state[:, 0], "turbo", "agent x", tuple(np.percentile(_state[:, 0], [2, 98]))),
+        ]
+        for _r, (_c, _cmap, _name, (_vmin, _vmax)) in enumerate(_colorings):
             _a = _axes[_r, _k]
-            _sc = _a.scatter(_pc[:, 0], _pc[:, 1], c=_c, cmap=_cmap, s=3, alpha=0.6, linewidths=0)
+            _sc = _a.scatter(
+                _pc[_order, 0], _pc[_order, 1], c=_c[_order], cmap=_cmap, vmin=_vmin, vmax=_vmax,
+                s=5, alpha=0.9, linewidths=0,
+            )
             for _episode in np.unique(_episode_id)[:3]:
                 _t = (_episode_x[_episode_id == _episode] - _mu) @ _vt[:2].T
                 _a.plot(_t[:, 0], _t[:, 1], color="black", lw=0.8, alpha=0.8)
@@ -785,11 +843,40 @@ def _(data, epoch_select, latents, np, plt, runs_at, space):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    **Results for `emb` at epoch 3 (what this notebook showed on
+    2026-10-17).** We read the colors from the plot by eye, so these are
+    rough observations.
+
+    | | SIGReg | no SIGReg | SIGReg 10 epochs (img224) |
+    |---|---|---|---|
+    | Size of the cloud | normal (about ±10) | about 10⁻⁵ (complete collapse) | normal (about ±8) |
+    | Variance in PC1 + PC2 | about 4% | about 28% | about 4% |
+    | Agent x colors | clear change from left (large x) to right (small x) | small change from left to right | clear pattern |
+    | Angle colors | outer frames almost all orange (about 0.8 rad), center mixed | mixed | the same as SIGReg |
+    | Black lines | smooth, with one large loop | long jumps in a tangle | mostly smooth |
+
+    - **Size.** The "no SIGReg" cloud is about 10⁶ times smaller than the
+      other two. The three plots look the same size only because each
+      plot has its own axes.
+    - **Share of variance.** In the SIGReg runs, about 65 directions share
+      the variance, so each PC has only about 2%. The plot shows only
+      about 4% of the cloud. In "no SIGReg", the (very small) variance is
+      in fewer directions.
+    - **Orange outer frames.** Many frames have a block angle near 0.8 rad.
+      This is possibly the goal angle of PushT, π/4 ≈ 0.785. We did not
+      verify this.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## 7. Over epochs: when does the collapse happen?
 
     These plots show the main numbers for every epoch of every run, for
-    the selected latent. Runs A and B have 3 epochs, and the img224 run has
-    10. Each plot has one measure, so each plot has one y-axis.
+    the selected latent. Runs A and B have 3 epochs, and the img224 run
+    has 10. Each plot has one measure, so each plot has one y-axis.
 
     - **Total variance** (log scale): the size of the cloud (section 1).
     - **Effective rank**: the number of directions used (section 3).
@@ -840,71 +927,7 @@ def _(COLORS, epochs, gauss_ref, labels, metrics, plt, run_epochs, space):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 8. Training curves from W&B (optional)
-
-    During training, `fit/sigreg_loss` was logged also for the run without
-    SIGReg (its weight was 0, so it had no effect on training). It is a
-    collapse monitor with one value for each step. A value that goes up
-    shows when the latents move away from N(0, I).
-
-    **The value for a complete collapse is about 51.46.** If all 128
-    points of a batch are at the same place near 0, the SIGReg loss is
-    128 × Σₖ wₖ (1 − φ(tₖ))² ≈ 51.46. (If that place is far from 0, the
-    value is higher.) So a curve that stays at about 51.4 means a complete
-    collapse near 0.
-
-    Also look at `fit/pred_loss`. Without SIGReg, a prediction loss that
-    goes to almost zero is a sign of the "easy" collapsed solution.
-
-    The 10-epoch img224 run was trained with W&B turned off, so this
-    section shows only runs A and B.
-
-    This cell reads the two curves with the W&B API. You must be logged in
-    to the W&B server of the `librakevin-workday` entity. If the cell
-    cannot connect, it shows the error and the rest of the notebook still
-    works. You can also look at the curves on the W&B web page.
-    """)
-    return
-
-
-@app.cell
-def _(COLORS, RUNS, WANDB_RUNS, labels, mo, plt):
-    def _load_wandb() -> dict:
-        import wandb
-
-        api = wandb.Api(timeout=30)
-        keys = ["trainer/global_step", "fit/sigreg_loss", "fit/pred_loss"]
-        return {
-            _l: api.run(f"librakevin-workday/lewm/{RUNS[_l]}").history(keys=keys, samples=2000)
-            for _l in WANDB_RUNS
-            if _l in labels
-        }
-
-    try:
-        _hist = _load_wandb()
-    except Exception as _err:
-        _out = mo.callout(mo.md(f"Could not read W&B: `{type(_err).__name__}: {str(_err)[:300]}`"), kind="warn")
-    else:
-        _fig, _axes = plt.subplots(1, 2, figsize=(11, 3.4))
-        for _a, _key in zip(_axes, ["fit/sigreg_loss", "fit/pred_loss"]):
-            for _l in _hist:
-                _h = _hist[_l].dropna(subset=[_key])
-                _x = _h["trainer/global_step"] if "trainer/global_step" in _h else _h["_step"]
-                _a.plot(_x, _h[_key], color=COLORS[_l], lw=1.5, label=_l)
-            _a.set_yscale("log")
-            _a.set_xlabel("training step")
-            _a.set_title(_key)
-            _a.legend()
-        _fig.tight_layout()
-        _out = _fig
-    _out
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## 9. Summary
+    ## 8. Summary
 
     The table puts the main numbers side by side for the selected epoch and
     latent, for each run that has this epoch. If runs A and B both have the
@@ -943,7 +966,7 @@ def _(epoch_select, gauss_ref, metrics, mo, runs_at, space):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 10. Longer training: does the effective rank keep going up?
+    ## 9. Longer training: does the effective rank keep going up?
 
     With SIGReg, run A has no complete collapse, but its effective rank is
     only about 69 of 192 at epoch 3 (section 3). Is this because the
@@ -964,8 +987,8 @@ def _(mo):
       a real distance from N(0, I) (section 4.1).
 
     **Results for `emb` (what this notebook showed on 2026-10-16):** the
-    effective rank goes up from about 51 at epoch 1 to about 98 at epoch
-    10. It stops at about epoch 8. The directions for 99% of the variance
+    effective rank goes up from about 51 at epoch 1 to about 98 at
+    epoch 10. It stops at about epoch 8. The directions for 99% of the variance
     go from 55 to 97. The SIGReg statistic goes down at the same time, from
     about 2.3 to about 1.33, so the SIGReg loss follows the rank. At epoch
     10, the part above the N(0, I) reference is only about 0.3. The spread
